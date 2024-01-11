@@ -5,6 +5,15 @@ name = "pypi"
 
 [packages]
 pyyaml = "*"
+flask = "*"
+loguru = "*"
+langchain = "*"
+pypdf = "*"
+sentence-transformers = "*"
+chromadb = "*"
+unstructured = "*"
+python-pptx = "*"
+docx2txt = "*"
 
 [dev-packages]
 

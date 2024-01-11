@@ -1,6 +1,12 @@
 name: "knowledge"
-addr: "127.0.0.1:8086"
+mode: "debug"
+host: "127.0.0.1"
+port: 8086
 
 llm:
-  end_point: "127.0.0.1:8000"
+  endpoint_url: "http://127.0.0.1:8000"
+  max_token: 80000
+
+chroma:
+  file_path: "./chroma_db"
   
