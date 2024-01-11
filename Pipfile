@@ -14,6 +14,8 @@ chromadb = "*"
 unstructured = "*"
 python-pptx = "*"
 docx2txt = "*"
+pandas = "*"
+openpyxl = "*"
 
 [dev-packages]
 

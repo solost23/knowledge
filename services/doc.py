@@ -1,4 +1,5 @@
 import os.path
+import uuid
 
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
@@ -22,7 +23,7 @@ class DocService:
 
     def upload(self, file: FileStorage) -> str:
         # 后缀 eg: .xlsx
-        file_name = os.path.splitext(file.filename)[0]
+        file_name = os.path.splitext(file.filename)[0] + str(uuid.uuid1())
         ext = os.path.splitext(file.filename)[-1]
         file_path = f'/tmp/{file_name}{ext}'
 
