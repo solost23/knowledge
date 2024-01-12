@@ -8,10 +8,14 @@ class Server:
         register(self.app)
 
     def run(self):
+        mode = True
+        if config.mode == 'release':
+            mode = False
+
         self.app.run(
             host=config.host,
             port=config.port,
-            debug=config.mode,
+            debug=mode,
         )
 
     def stop(self):
