@@ -16,6 +16,9 @@ python-pptx = "*"
 docx2txt = "*"
 pandas = "*"
 openpyxl = "*"
+openai = "==0.28"
+langchain-wenxin = "*"
+qianfan = "*"
 
 [dev-packages]
 
