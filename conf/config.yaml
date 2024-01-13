@@ -24,4 +24,9 @@ chroma:
 
 embedding:
   cache_path: "./huggingface"
+  multi_process: False
+  model_kwargs:
+    device: "mps"
+  encode_kwargs:
+    normalize_embeddings: False
   

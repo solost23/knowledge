@@ -4,11 +4,10 @@ from universal.config import config
 
 
 def embedding():
-    model_kwargs = {'device': 'cpu'}
-    encode_kwargs = {'normalize_embeddings': False}
     hf = HuggingFaceEmbeddings(
-        model_kwargs=model_kwargs,
-        encode_kwargs=encode_kwargs,
+        model_kwargs=config.embedding.get('model_kwargs'),
+        encode_kwargs=config.embedding.get('encode_kwargs'),
+        multi_process=config.embedding.get('multi_process'),
         cache_folder=config.embedding.get('cache_path'),
     )
     return hf

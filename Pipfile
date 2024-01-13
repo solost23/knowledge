@@ -1,5 +1,5 @@
 [[source]]
-url = "https://pypi.org/simple"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 verify_ssl = true
 name = "pypi"
 
@@ -19,6 +19,7 @@ openpyxl = "*"
 openai = "==0.28"
 langchain-wenxin = "*"
 qianfan = "*"
+importlib-metadata = "*"
 
 [dev-packages]
 

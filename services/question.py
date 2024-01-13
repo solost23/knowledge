@@ -21,7 +21,7 @@ class QuestionService:
             persist_directory=config.chroma.get('file_path')
         )
 
-        # 匹配相似文档
+        # match doc
         match_docs = chroma.similarity_search(question)
 
         llm_name = config.llm.get('name')
@@ -33,7 +33,7 @@ class QuestionService:
         elif llm_name == WenXinName:
             llm = wen_xin()
 
-        # 搜索
+        # search
         answer = load_qa_chain(llm, verbose=True).\
             run(input_documents=match_docs, question=question)
 
