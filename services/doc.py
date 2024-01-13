@@ -23,7 +23,7 @@ class DocService:
 
     def upload(self, file: FileStorage) -> str:
         # 后缀 eg: .xlsx
-        file_name = os.path.splitext(file.filename)[0] + str(uuid.uuid1())
+        file_name = os.path.basename(file.filename) + str(uuid.uuid1())
         ext = os.path.splitext(file.filename)[-1]
         file_path = f'/tmp/{file_name}{ext}'
 
@@ -34,7 +34,9 @@ class DocService:
                 file.save(file_path)
             finally:
                 file.close()
+        return self.doc(file_path, ext)
 
+    def doc(self, file_path: str, ext: str) -> str:
         # 数据载入
         if ext == ".pdf":
             docs = pdf.load(file_path)
