@@ -5,7 +5,7 @@ port: 8086
 
 llm:
   # 可替换为 chat_gpt
-  name: "wen_xin"
+  name: "chat_glm"
 
 chat_glm:
   endpoint_url: "http://127.0.0.1:8000"
@@ -21,4 +21,7 @@ wen_xin:
 
 chroma:
   file_path: "./chroma_db"
+
+embedding:
+  cache_path: "./huggingface"
   

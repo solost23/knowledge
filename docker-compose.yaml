@@ -9,5 +9,6 @@ services:
       - "8086:8086"
     volumes:
       - "${PWD}/chroma_db:/app/chroma_db"
+      - "${PWD}/huggingface:/app/huggingface"
       - "${PWD}/conf:/app/conf"
       - "/tmp:/tmp"
