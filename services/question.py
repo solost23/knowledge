@@ -1,12 +1,13 @@
+import time
+
 from loguru import logger
-from langchain_community.vectorstores.milvus import Milvus
 from langchain.chains.question_answering import load_qa_chain
 
 from universal.config import config
-from services.servants import embedding
 from services.servants.llm import ChatGLmName, chat_glm, ChatGptName, chat_gpt, WenXinName, wen_xin
 from initialize import response
 from caches.gpt import gpt as gpt_cache
+from universal.milvus import milvus
 
 
 class QuestionService:
@@ -26,11 +27,7 @@ class QuestionService:
         # # match doc
         # match_docs = chroma.similarity_search(question)
 
-        milvus = Milvus(
-            embedding_function=embedding.embedding(),
-            connection_args=config.milvus,
-        )
-        match_docs = milvus.similarity_search(question)
+        match_docs = milvus.db.similarity_search(question)
 
         llm_name = config.llm.get('name')
         if llm_name == ChatGLmName:
@@ -45,7 +42,7 @@ class QuestionService:
         llm.cache = config.cache.get('use')
 
         # search
-        answer = load_qa_chain(llm, verbose=True).\
+        answer = load_qa_chain(llm, verbose=False).\
             run(input_documents=match_docs, question=question)
 
         logger.info(f'answer: {answer}')

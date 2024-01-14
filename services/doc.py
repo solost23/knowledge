@@ -4,17 +4,15 @@ import uuid
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores.milvus import Milvus
 
 from services.servants import (
     doc,
     excel,
     pdf,
     ppt,
-    embedding
 )
-from universal.config import config
 from initialize import response
+from universal.milvus import milvus
 
 
 class DocService:
@@ -58,10 +56,6 @@ class DocService:
         # chroma.persist()
 
         # milvus
-        milvus = Milvus(
-            embedding_function=embedding.embedding(),
-            connection_args=config.milvus,
-        )
-        milvus.add_documents(texts)
+        milvus.db.add_documents(texts)
 
         return response.success("成功", None)

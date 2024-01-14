@@ -8,7 +8,7 @@ from gptcache.embedding import LangChain
 from gptcache.similarity_evaluation import SearchDistanceEvaluation
 
 from universal.config import config
-from services.servants.embedding import embedding
+from initialize.embedding import embedding
 
 
 def gpt():
@@ -41,7 +41,7 @@ def init_gptcache(cache_obj: gptcache.Cache, llm: str):
     evaluation_config = config.cache.get('search_distance_evaluation')
     init_similar_cache(
         cache_obj=cache_obj,
-        embedding=LangChain(embedding()),
+        embedding=LangChain(embedding(config)),
         data_dir=f"map_cache_{config.llm.get('name')}",
         evaluation=SearchDistanceEvaluation(
             max_distance=evaluation_config.get('max_distance'),
