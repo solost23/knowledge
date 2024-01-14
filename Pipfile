@@ -20,6 +20,8 @@ openai = "==0.28"
 langchain-wenxin = "*"
 qianfan = "*"
 importlib-metadata = "*"
+gptcache = "*"
+pymilvus = "*"
 
 [dev-packages]
 

@@ -19,8 +19,13 @@ wen_xin:
   api_key: "mUv***1Ll"
   secret_key: "0r3***UmY"
 
-chroma:
-  file_path: "./chroma_db"
+#chroma:
+#  file_path: "./chroma_db"
+
+# 改为milvus存储
+milvus:
+  host: "127.0.0.1"
+  port: 19530
 
 embedding:
   cache_path: "./huggingface"
@@ -29,4 +34,10 @@ embedding:
     device: "mps"
   encode_kwargs:
     normalize_embeddings: False
+
+cache:
+  use: True
+  search_distance_evaluation:
+    max_distance: 4.0
+    positive: False
   

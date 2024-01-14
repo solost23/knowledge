@@ -11,3 +11,5 @@ def embedding():
         cache_folder=config.embedding.get('cache_path'),
     )
     return hf
+
+

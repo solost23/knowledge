@@ -4,7 +4,7 @@ import uuid
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores.chroma import Chroma
+from langchain_community.vectorstores.milvus import Milvus
 
 from services.servants import (
     doc,
@@ -54,7 +54,14 @@ class DocService:
         texts = splitter.split_documents(docs)
 
         # 数据插入向量数据库 TODO: 后面改成milvus
-        chroma = Chroma.from_documents(texts, embedding.embedding(), persist_directory=config.chroma['file_path'])
-        chroma.persist()
+        # chroma = Chroma.from_documents(texts, embedding.embedding(), persist_directory=config.chroma['file_path'])
+        # chroma.persist()
+
+        # milvus
+        milvus = Milvus(
+            embedding_function=embedding.embedding(),
+            connection_args=config.milvus,
+        )
+        milvus.add_documents(texts)
 
         return response.success("成功", None)
