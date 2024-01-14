@@ -4,11 +4,11 @@ services:
   knowledge:
     build: "."
     image: "knowledge:v1.0.0"
+    restart: always
     container_name: "knowledge"
     ports:
       - "8086:8086"
     volumes:
-      - "${PWD}/chroma_db:/app/chroma_db"
       - "${PWD}/huggingface:/app/huggingface"
       - "${PWD}/conf:/app/conf"
       - "/tmp:/tmp"

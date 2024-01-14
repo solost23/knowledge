@@ -4,7 +4,7 @@ LABEL version="1.0.0"
 
 WORKDIR /app
 COPY . .
-RUN pip install pipenv && \
+RUN pip install --upgrade pip && pip install pipenv && \
     pipenv install --system
 
 CMD ["python", "./main.py"]

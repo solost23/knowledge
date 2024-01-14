@@ -1324,14 +1324,6 @@
             "markers": "python_version >= '3.7'",
             "version": "==0.1.2"
         },
-        "milvus": {
-            "hashes": [
-                "sha256:119be606e275c4c7d592cc97d83ec896fff4539cef1ad36e285bd8c8fbb4feed"
-            ],
-            "index": "pypi",
-            "markers": "python_version >= '3.6'",
-            "version": "==2.3.4"
-        },
         "minio": {
             "hashes": [
                 "sha256:4971dfb1a71eeefd38e1ce2dc7edc4e6eb0f07f1c1d6d70c15457e3280cfc4b9",

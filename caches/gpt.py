@@ -42,13 +42,9 @@ def init_gptcache(cache_obj: gptcache.Cache, llm: str):
     init_similar_cache(
         cache_obj=cache_obj,
         embedding=LangChain(embedding()),
-        data_dir=f'map_cache_{hash(llm)}',
+        data_dir=f"map_cache_{config.llm.get('name')}",
         evaluation=SearchDistanceEvaluation(
             max_distance=evaluation_config.get('max_distance'),
             positive=evaluation_config.get('positive'),
         ),
     )
-
-
-def hash(name: str) -> str:
-    return hashlib.sha256(name.encode()).hexdigest()[:5]
