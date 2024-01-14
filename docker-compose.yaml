@@ -12,6 +12,7 @@ services:
       - "${PWD}/huggingface:/app/huggingface"
       - "${PWD}/conf:/app/conf"
       - "/tmp:/tmp"
+      - "${PWD}/map_cache_chat_glm:/app/map_cache_chat_glm"
     depends_on:
       - "milvus"
 
