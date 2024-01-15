@@ -1,15 +1,15 @@
-from initialize.config import YamlConfig
-from initialize.milvus import Milvus
-from universal.config import config, initialize_config_var
-from universal.milvus import milvus, initialize_milvus_var
 
 
 def initialize():
+    from universal.config import config, initialize_config_var
     if config is None:
-        yaml_config = YamlConfig()
-        initialize_config_var(yaml_config)
+        from initialize.config import YamlConfig
+        initialize_config_var(YamlConfig())
+
+    from universal.milvus import milvus, initialize_milvus_var
     if milvus is None:
-        initialize_milvus_var(Milvus(yaml_config))
+        from initialize.milvus import Milvus
+        initialize_milvus_var(Milvus())
 
 
 initialize()

@@ -1,5 +1,3 @@
-import hashlib
-
 import gptcache
 from gptcache.adapter.api import init_similar_cache
 from langchain.globals import set_llm_cache
@@ -41,7 +39,7 @@ def init_gptcache(cache_obj: gptcache.Cache, llm: str):
     evaluation_config = config.cache.get('search_distance_evaluation')
     init_similar_cache(
         cache_obj=cache_obj,
-        embedding=LangChain(embedding(config)),
+        embedding=LangChain(embedding()),
         data_dir=f"map_cache_{config.llm.get('name')}",
         evaluation=SearchDistanceEvaluation(
             max_distance=evaluation_config.get('max_distance'),
