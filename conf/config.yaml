@@ -10,25 +10,22 @@ llm:
 chat_glm:
   endpoint_url: "http://127.0.0.1:8000"
   max_token: 80000
+  timeout: 60
 
 chat_gpt:
-  api_key: "aji***ill"
+  # api_key 从环境变量 OPENAI_API_KEY 读取
   max_token: 40000
 
 wen_xin:
-  api_key: "mUv***1Ll"
-  secret_key: "0r3***UmY"
+  # api_key 从环境变量 WENXIN_API_KEY 读取
+  # secret_key 从环境变量 WENXIN_SECRET_KEY 读取
 
-#chroma:
-#  file_path: "./chroma_db"
-
-# 改为milvus存储
-milvus:
-  host: "127.0.0.1"
-  port: 19530
+chroma:
+  persist_directory: "./chroma_db"
 
 embedding:
   cache_path: "./huggingface"
+  model_name: "./huggingface/sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2"
   multi_process: False
   model_kwargs:
     device: "mps"

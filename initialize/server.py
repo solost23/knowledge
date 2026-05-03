@@ -1,10 +1,11 @@
-from flask import Flask
+from flask_openapi3 import OpenAPI, Info
 from universal.config import config
 
 
 class Server:
     def __init__(self, register):
-        self.app = Flask(config.name)
+        info = Info(title="Knowledge API", version="1.0.0")
+        self.app = OpenAPI(config.name, info=info)
         register(self.app)
 
     def run(self):

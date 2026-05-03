@@ -1,13 +1,11 @@
-import time
-
 from loguru import logger
 from langchain.chains.question_answering import load_qa_chain
 
 from universal.config import config
 from services.servants.llm import ChatGLmName, chat_glm, ChatGptName, chat_gpt, WenXinName, wen_xin
 from initialize import response
-from caches.gpt import gpt as gpt_cache
-from universal.milvus import milvus
+from caches.gpt import init_cache
+from universal.chroma import chroma
 
 
 class QuestionService:
@@ -15,36 +13,42 @@ class QuestionService:
         pass
 
     def question(self, question: str) -> str:
-        # gpt_cache
-        gpt_cache()
+        try:
+            init_cache()
 
-        # # 问题向量化
-        # chroma = Chroma(
-        #     embedding_function=embedding.embedding(),
-        #     persist_directory=config.chroma.get('file_path')
-        # )
-        #
-        # # match doc
-        # match_docs = chroma.similarity_search(question)
+            match_docs = chroma.db.similarity_search(question)
 
-        match_docs = milvus.db.similarity_search(question)
+            llm_name = config.llm.get('name')
+            if llm_name == ChatGLmName:
+                llm = chat_glm()
+            elif llm_name == ChatGptName:
+                llm = chat_gpt()
+            elif llm_name == WenXinName:
+                llm = wen_xin()
+            else:
+                return response.error(500, f'未知的 LLM 配置: {llm_name}')
 
-        llm_name = config.llm.get('name')
-        if llm_name == ChatGLmName:
-            # ChatGlm模型 TODO: 模型过慢
-            llm = chat_glm()
-        elif llm_name == ChatGptName:
-            llm = chat_gpt()
-        elif llm_name == WenXinName:
-            llm = wen_xin()
+            llm.cache = config.cache.get('use')
 
-        # llm use cache
-        llm.cache = config.cache.get('use')
+            answer = load_qa_chain(llm, verbose=False).run(
+                input_documents=match_docs,
+                question=question,
+            )
 
-        # search
-        answer = load_qa_chain(llm, verbose=False).\
-            run(input_documents=match_docs, question=question)
+            sources = [
+                {
+                    "source": doc.metadata.get("source", ""),
+                    "content": doc.page_content,
+                }
+                for doc in match_docs
+            ]
 
-        logger.info(f'answer: {answer}')
+            logger.info(f'answer: {answer}')
+            return response.success("成功", {"answer": answer, "sources": sources})
 
-        return response.success("成功", answer)
+        except EnvironmentError as e:
+            logger.error(f'LLM 配置错误: {e}')
+            return response.error(500, str(e))
+        except Exception as e:
+            logger.error(f'问答失败: {e}')
+            return response.error(500, f'问答处理失败: {str(e)}')

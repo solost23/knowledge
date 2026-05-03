@@ -14,18 +14,25 @@ def chat_glm() -> ChatGLM:
     return ChatGLM(
         endpoint_url=config.chat_glm.get('endpoint_url'),
         max_token=config.chat_glm.get('max_token'),
+        timeout=config.chat_glm.get('timeout', 60),
     )
 
 
 def chat_gpt() -> OpenAIChat:
-    os.environ["OPENAI_API_KEY"] = config.chat_gpt.get('api_key')
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("环境变量 OPENAI_API_KEY 未设置")
     return OpenAIChat(
         max_token=config.chat_gpt.get('max_token'),
     )
 
 
 def wen_xin() -> Wenxin:
+    api_key = os.environ.get("WENXIN_API_KEY")
+    secret_key = os.environ.get("WENXIN_SECRET_KEY")
+    if not api_key or not secret_key:
+        raise EnvironmentError("环境变量 WENXIN_API_KEY 或 WENXIN_SECRET_KEY 未设置")
     return Wenxin(
-        baidu_api_key=config.wen_xin.get('api_key'),
-        baidu_secret_key=config.wen_xin.get('secret_key')
+        baidu_api_key=api_key,
+        baidu_secret_key=secret_key,
     )

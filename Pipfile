@@ -6,8 +6,9 @@ name = "pypi"
 [packages]
 pyyaml = "*"
 flask = "*"
+flask-openapi3 = "*"
 loguru = "*"
-langchain = "*"
+langchain = "==0.1.0"
 pypdf = "*"
 sentence-transformers = "*"
 chromadb = "*"
@@ -21,7 +22,6 @@ langchain-wenxin = "*"
 qianfan = "*"
 importlib-metadata = "*"
 gptcache = "*"
-pymilvus = "*"
 
 [dev-packages]
 

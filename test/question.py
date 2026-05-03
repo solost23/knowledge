@@ -8,9 +8,6 @@ from services.question import QuestionService
 
 
 class QuestionServiceTestCase(unittest.TestCase):
-    """
-    测试 question 函数
-    """
     def test_question(self):
         questions = [
             '作业评级为优秀的学生姓名都是什么？',
@@ -19,7 +16,12 @@ class QuestionServiceTestCase(unittest.TestCase):
         ]
 
         for question in questions:
-            self.assertEqual(0, QuestionService().question(question).get('code'))
+            result, status_code = QuestionService().question(question)
+            self.assertEqual(0, result.get('code'))
+            data = result.get('data')
+            self.assertIn('answer', data)
+            self.assertIn('sources', data)
+            self.assertIsInstance(data['sources'], list)
 
 
 if __name__ == "__main__":

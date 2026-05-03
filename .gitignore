@@ -159,3 +159,15 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 volumes/
+
+# 运行时数据
+chroma_db/
+knowledge.db
+map_cache_*/
+
+# 模型缓存
+huggingface/
+
+# 本地工具
+.claude/
+.vscode/

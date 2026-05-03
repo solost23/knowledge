@@ -6,10 +6,10 @@ def initialize():
         from initialize.config import YamlConfig
         initialize_config_var(YamlConfig())
 
-    from universal.milvus import milvus, initialize_milvus_var
-    if milvus is None:
-        from initialize.milvus import Milvus
-        initialize_milvus_var(Milvus())
+    from universal.chroma import chroma, initialize_chroma_var
+    if chroma is None:
+        from initialize.chroma import ChromaDB
+        initialize_chroma_var(ChromaDB())
 
 
 initialize()
