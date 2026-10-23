@@ -36,6 +36,10 @@ class AgentRunBusy(Exception):
     pass
 
 
+class AgentRunCancelled(Exception):
+    pass
+
+
 class AgentState(TypedDict):
     task: str
     plan: list[str]

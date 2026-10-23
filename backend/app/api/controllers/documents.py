@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core import response
 from app.knowledge.documents import DocumentService
+from app.knowledge.document_imports import DocumentImportService
 
 tag = Tag(name="笔记管理")
 
@@ -16,6 +17,10 @@ class DocPath(BaseModel):
     name: str = Field(description="文件名")
 
 
+class UploadTaskPath(BaseModel):
+    task_id: str = Field(description="文档导入任务 ID")
+
+
 class UploadForm(BaseModel):
     file: object = Field(description="上传的文件，支持 pdf、docx、pptx、xlsx、md")
 
@@ -23,6 +28,7 @@ class UploadForm(BaseModel):
 class DocumentController:
     def __init__(self, app: Flask):
         self.app = app
+        self.import_service = DocumentImportService()
 
     def register(self):
         @self.app.post("/upload", tags=[tag], summary="上传笔记")
@@ -35,7 +41,20 @@ class DocumentController:
             if ext not in ALLOWED_EXTENSIONS:
                 return response.error(400, f'不支持的文件类型 {ext}，仅支持 pdf、docx、pptx、xlsx、md')
 
-            return DocumentService().upload(file)
+            filename = os.path.basename(file.filename.replace("\\", "/"))
+            try:
+                job = self.import_service.submit(file, ext, filename)
+            except Exception as error:
+                return response.error(500, f"上传文件失败：{error}")
+            body, _ = response.success("文件已接收，正在导入", job)
+            return body, 202
+
+        @self.app.get("/upload/tasks/<task_id>", tags=[tag], summary="查询文档导入进度")
+        def upload_task(path: UploadTaskPath):
+            job = self.import_service.get(path.task_id)
+            if not job:
+                return response.error(404, "文档导入任务不存在")
+            return response.success("成功", job)
 
         @self.app.get("/docs", tags=[tag], summary="笔记列表")
         def list_docs():

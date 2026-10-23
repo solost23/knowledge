@@ -26,7 +26,7 @@ from app.agents.tools import (
 )
 
 
-def compile_graph(planner, executor, finalizer, checkpointer=None):
+def compile_graph(planner, executor, finalizer, checkpointer=None, progress_callback=None):
     def plan(state: AgentState):
         steps = [step.strip() for step in state["plan"] if step.strip()]
         if any(len(step) > MAX_STEP_LENGTH for step in steps):
@@ -34,6 +34,11 @@ def compile_graph(planner, executor, finalizer, checkpointer=None):
         if len(steps) > MAX_PLAN_STEPS:
             raise ValueError(f"执行步骤不能超过 {MAX_PLAN_STEPS} 步")
         if not steps and planner is not None:
+            if progress_callback:
+                progress_callback({
+                    "stage": "planning",
+                    "current_action": "正在拆分执行计划",
+                })
             result = planner.invoke([
                 SystemMessage(content=PLAN_SYSTEM_PROMPT),
                 HumanMessage(content=state["task"]),
@@ -41,10 +46,26 @@ def compile_graph(planner, executor, finalizer, checkpointer=None):
             steps = [step.strip() for step in result.steps if step.strip()]
         if not steps:
             raise ValueError("模型没有生成可执行步骤")
+        if progress_callback:
+            progress_callback({
+                "stage": "executing",
+                "plan": steps[:MAX_PLAN_STEPS],
+                "current_step": 0,
+                "active_step": None,
+                "current_action": "执行计划已生成，准备开始",
+            })
         return {"plan": steps[:MAX_PLAN_STEPS], "current_step": 0}
 
     def execute_step(state: AgentState):
         index = state["current_step"]
+        if progress_callback:
+            progress_callback({
+                "stage": "executing",
+                "plan": state["plan"],
+                "current_step": index,
+                "active_step": index + 1,
+                "current_action": f"正在执行第 {index + 1} 步：{state['plan'][index]}",
+            })
         prior_results = "\n".join(
             f"{item['index']}. {item['task']}：{item['result']}"
             for item in state["steps"]
@@ -75,6 +96,14 @@ def compile_graph(planner, executor, finalizer, checkpointer=None):
             "result": message_text(final_message.content),
             "tools": tool_calls,
         }
+        if progress_callback:
+            progress_callback({
+                "stage": "executing",
+                "current_step": index + 1,
+                "active_step": None,
+                "current_action": f"第 {index + 1} 步已完成",
+                "steps": state["steps"] + [step_result],
+            })
         sources = state["sources"] + extract_sources(messages)
         unique_sources = []
         seen = set()
@@ -89,6 +118,13 @@ def compile_graph(planner, executor, finalizer, checkpointer=None):
         return {"current_step": state["current_step"] + 1}
 
     def finalize(state: AgentState):
+        if progress_callback:
+            progress_callback({
+                "stage": "finalizing",
+                "current_step": len(state["plan"]),
+                "active_step": None,
+                "current_action": "正在整理步骤结果和参考来源",
+            })
         evidence = json.dumps(
             {"completed_steps": state["steps"], "sources": state["sources"]},
             ensure_ascii=False,
@@ -115,7 +151,7 @@ def compile_graph(planner, executor, finalizer, checkpointer=None):
     return graph.compile(checkpointer=checkpointer)
 
 
-def build_graph(llm, checkpointer=None):
+def build_graph(llm, checkpointer=None, progress_callback=None):
     planner = llm.with_structured_output(TaskPlan, method="function_calling")
     executor = create_agent(
         llm,
@@ -126,4 +162,10 @@ def build_graph(llm, checkpointer=None):
             exit_behavior="end",
         )],
     )
-    return compile_graph(planner, executor, llm, checkpointer=checkpointer)
+    return compile_graph(
+        planner,
+        executor,
+        llm,
+        checkpointer=checkpointer,
+        progress_callback=progress_callback,
+    )

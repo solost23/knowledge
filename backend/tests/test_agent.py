@@ -1,6 +1,8 @@
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -59,7 +61,13 @@ class AgentGraphTestCase(unittest.TestCase):
     def test_plan_steps_execute_in_order_and_collect_sources(self):
         planner = FakePlanner()
         executor = FakeExecutor()
-        graph = compile_graph(planner, executor, FakeFinalizer())
+        progress_updates = []
+        graph = compile_graph(
+            planner,
+            executor,
+            FakeFinalizer(),
+            progress_callback=progress_updates.append,
+        )
 
         result = graph.invoke({
             "task": "比较新旧制度",
@@ -78,6 +86,8 @@ class AgentGraphTestCase(unittest.TestCase):
         self.assertEqual(["search_knowledge"], result["steps"][0]["tools"])
         self.assertEqual(["制度1.md", "制度2.md"], [item["source"] for item in result["sources"]])
         self.assertEqual("新旧制度差异已整理。", result["answer"])
+        self.assertEqual([1, 2], [item["active_step"] for item in progress_updates if item.get("active_step")])
+        self.assertIn("finalizing", [item["stage"] for item in progress_updates])
 
     def test_checkpoint_resumes_from_failed_step_after_reopening_database(self):
         executor = FailOnceExecutor()
@@ -110,8 +120,14 @@ class AgentGraphTestCase(unittest.TestCase):
     def test_agent_service_persists_failed_run_and_resumes_it(self):
         executor = FailOnceExecutor()
 
-        def build_graph(_llm, checkpointer):
-            return compile_graph(None, executor, FakeFinalizer(), checkpointer)
+        def build_graph(_llm, checkpointer, progress_callback=None):
+            return compile_graph(
+                None,
+                executor,
+                FakeFinalizer(),
+                checkpointer,
+                progress_callback=progress_callback,
+            )
 
         with tempfile.TemporaryDirectory() as directory, \
                 patch.dict(os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.sqlite")}), \
@@ -139,6 +155,130 @@ class AgentGraphTestCase(unittest.TestCase):
             completed, status = service.get_status(execution_id)
             self.assertEqual(200, status)
             self.assertEqual("completed", completed["data"]["status"])
+
+    def test_agent_start_returns_pollable_run_before_background_work(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.sqlite")}), \
+                patch("app.agents.service._AGENT_EXECUTOR.submit") as submit:
+            result, status = AgentTaskService().start(
+                "比较两份制度",
+                plan=["查找新制度", "比较差异"],
+                llm=object(),
+            )
+            execution_id = result["data"]["execution_id"]
+            progress, progress_status = AgentTaskService().get_status(execution_id)
+
+        self.assertEqual(202, status)
+        self.assertEqual(200, progress_status)
+        self.assertEqual("running", progress["data"]["status"])
+        self.assertEqual(["查找新制度", "比较差异"], progress["data"]["plan"])
+        self.assertEqual("Agent 已接收任务，准备执行计划", progress["data"]["current_action"])
+        submit.assert_called_once()
+
+    def test_agent_status_reports_active_step_during_background_execution(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        class BlockingExecutor:
+            def invoke(self, state, config):
+                started.set()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("test did not release executor")
+                prompt = state["messages"][-1].content
+                return {"messages": [HumanMessage(content=prompt), AIMessage(content="已完成") ]}
+
+        def build_graph(_llm, checkpointer, progress_callback=None):
+            return compile_graph(
+                None,
+                BlockingExecutor(),
+                FakeFinalizer(),
+                checkpointer,
+                progress_callback=progress_callback,
+            )
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.sqlite")}), \
+                patch("app.agents.service.build_graph", side_effect=build_graph):
+            service = AgentTaskService()
+            started_response, status = service.start(
+                "执行后台任务",
+                plan=["正在执行的步骤"],
+                llm=object(),
+            )
+            execution_id = started_response["data"]["execution_id"]
+            try:
+                self.assertTrue(started.wait(timeout=3))
+                progress, status = service.get_status(execution_id)
+                self.assertEqual(200, status)
+                self.assertEqual("running", progress["data"]["status"])
+                self.assertEqual(1, progress["data"]["active_step"])
+                self.assertIn("正在执行第 1 步", progress["data"]["current_action"])
+            finally:
+                release.set()
+
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                progress, status = service.get_status(execution_id)
+                if status == 200 and progress["data"]["status"] == "completed":
+                    break
+                time.sleep(0.02)
+
+        self.assertEqual("completed", progress["data"]["status"])
+        self.assertEqual(["已完成"], [step["result"] for step in progress["data"]["steps"]])
+
+    def test_agent_cancellation_finishes_at_step_boundary_and_records_duration(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        class BlockingExecutor:
+            def invoke(self, state, config):
+                started.set()
+                if not release.wait(timeout=5):
+                    raise TimeoutError("test did not release executor")
+                prompt = state["messages"][-1].content
+                return {"messages": [HumanMessage(content=prompt), AIMessage(content="已完成") ]}
+
+        def build_graph(_llm, checkpointer, progress_callback=None):
+            return compile_graph(
+                None,
+                BlockingExecutor(),
+                FakeFinalizer(),
+                checkpointer,
+                progress_callback=progress_callback,
+            )
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.sqlite")}), \
+                patch("app.agents.service.build_graph", side_effect=build_graph):
+            service = AgentTaskService()
+            started_response, status = service.start(
+                "停止测试任务",
+                plan=["执行一个可能耗时的步骤"],
+                llm=object(),
+            )
+            execution_id = started_response["data"]["execution_id"]
+            try:
+                self.assertTrue(started.wait(timeout=3))
+                cancel_response, cancel_status = service.cancel(execution_id)
+                self.assertEqual(200, cancel_status)
+                self.assertTrue(cancel_response["data"]["cancel_requested"])
+            finally:
+                release.set()
+
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                progress, status = service.get_status(execution_id)
+                if status == 200 and progress["data"]["status"] != "running":
+                    break
+                time.sleep(0.02)
+
+        run = progress["data"]
+        self.assertEqual("cancelled", run["status"])
+        self.assertEqual("任务已停止", run["current_action"])
+        self.assertTrue(run["started_at"])
+        self.assertTrue(run["finished_at"])
+        self.assertGreater(run["duration_ms"], 0)
+        self.assertTrue(run["cancel_requested"])
 
     def test_search_tool_input_is_bounded(self):
         SearchKnowledgeInput(query="费用报销", top_k=4)

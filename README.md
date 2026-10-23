@@ -1,6 +1,6 @@
 # 知序知识库 Agent
 
-基于 Vue 3、Flask、LangChain 和 LangGraph 的本地优先知识库 Agent。系统把普通问题自动交给 RAG；需要比较资料或按步骤完成的任务交给 Agent 规划和执行。文档索引、文档清单和 Agent checkpoint 默认保存在 `backend/data/`。
+基于 Vue 3、Flask、LangChain 和 LangGraph 的本地优先知识库 Agent。系统把普通问题自动交给 RAG；需要比较资料或按步骤完成的任务交给 Agent 规划和执行。文档索引、文档清单、对话历史、会话摘要和 Agent checkpoint 默认保存在 `backend/data/`。
 
 ## 项目结构
 
@@ -59,6 +59,10 @@ npm run dev
 
 - 上传 `PDF`、`DOCX`、`PPTX`、`XLSX`、`MD`，查看文档清单并删除文档。
 - 前端统一调用 `POST /ask`；后端决定走 RAG 还是 Agent，客户端无需传 `mode`。
+- `POST /ask` 接收当前 `task` 和可选的 `conversation_id`；新对话首轮完成后返回 ID，后续请求携带该 ID 即可连续追问。
+- 原始对话保存在本机 SQLite，刷新后可以继续同一会话；较早消息压缩为摘要供模型使用，原文仍可在会话记录中查看。后端只加载当前会话，不会把其他会话的内容混入。
+- 长会话达到压缩阈值后，后端会更新该会话的滚动摘要，并保留最近几轮原文；单次请求的历史上下文限制为约 6,000 字符，摘要只在压缩时额外调用模型。
+- `POST /conversations`、`GET /conversations`、`GET /conversations/{conversation_id}` 和 `DELETE /conversations/{conversation_id}` 用于管理会话。
 - Agent 先规划最多五步，再通过受限的只读知识库工具逐步执行，并返回步骤、来源和最终回答。
 - Agent 提供 `GET /agent/runs/{execution_id}` 查询状态，以及 `POST /agent/resume` 恢复失败执行。
 - `GET /healthz` 提供服务健康检查。
@@ -90,7 +94,7 @@ npm run build
 docker compose up --build -d
 ```
 
-网页只绑定到 `127.0.0.1:8080`；API 只在 Compose 内网提供服务。数据持久化到 `backend/data/`。查看状态和日志：
+网页只绑定到 `127.0.0.1:8080`；API 只在 Compose 内网提供服务。文档、会话和 Agent 状态持久化到 `backend/data/`。查看状态和日志：
 
 ```shell
 docker compose ps
