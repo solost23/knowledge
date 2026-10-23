@@ -4,37 +4,32 @@ host: "0.0.0.0"
 port: 8086
 
 llm:
-  # 可替换为 chat_gpt
-  name: "chat_glm"
+  # 可替换为 chat_glm
+  name: "chat_gpt"
 
 chat_glm:
+  # 需暴露 OpenAI 兼容接口（vLLM / Ollama / ChatGLM 均可）
   endpoint_url: "http://127.0.0.1:8000"
-  max_token: 80000
+  model: "chatglm3"
+  max_token: 4096
   timeout: 60
 
 chat_gpt:
-  # api_key 从环境变量 OPENAI_API_KEY 读取
-  max_token: 40000
+  # api_key 从环境变量 OPENAI_API_KEY 读取（可写在 .env）
+  base_url: "https://724ai.org/v1"
+  model: "claude-sonnet-5"
+  max_token: 4096
+  temperature: 0
 
-wen_xin:
-  # api_key 从环境变量 WENXIN_API_KEY 读取
-  # secret_key 从环境变量 WENXIN_SECRET_KEY 读取
 
 chroma:
   persist_directory: "./chroma_db"
 
 embedding:
+  # fastembed + ONNX Runtime，模型首次使用时自动下载到 cache_path
+  model_name: "BAAI/bge-small-zh-v1.5"
   cache_path: "./huggingface"
-  model_name: "./huggingface/sentence-transformers_paraphrase-multilingual-MiniLM-L12-v2"
-  multi_process: False
-  model_kwargs:
-    device: "mps"
-  encode_kwargs:
-    normalize_embeddings: False
+  threads: 4
 
-cache:
-  use: True
-  search_distance_evaluation:
-    max_distance: 4.0
-    positive: False
+# 缓存层已随 LangChain 1.x 迁移移除，将在 P3 以带护栏的方式重做
   

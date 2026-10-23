@@ -4,7 +4,7 @@ import uuid
 
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from services.servants import (
     doc,

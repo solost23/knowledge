@@ -1,0 +1,8 @@
+{"id":"rag_expense_limit","task":"根据报销制度，一线城市出差住宿每晚标准是多少？","expected_mode":"rag","answer_terms":["600"]}
+{"id":"rag_remote_days","task":"远程办公每周最多可以申请几天？","expected_mode":"rag","answer_terms":["2"]}
+{"id":"rag_security_exam","task":"新员工安全考试多少分及格？","expected_mode":"rag","answer_terms":["80"]}
+{"id":"agent_expense_compare","task":"分别查找新版和 2023 版报销制度中的一线城市住宿标准，比较差异并列出来源。","expected_mode":"agent","plan_terms":["报销","新版","2023"],"answer_terms":["600","500"],"expected_tools":["search_knowledge"],"min_plan_steps":2}
+{"id":"agent_incident_and_rto","task":"分别查找 P1 故障响应时限、数据库恢复演练频率和 RTO 目标，汇总答案及来源。","expected_mode":"agent","plan_terms":["P1","数据库","RTO"],"answer_terms":["5 分钟","每季度","2 小时"],"expected_tools":["search_knowledge"],"min_plan_steps":2}
+{"id":"agent_security_rules","task":"分别查找生产密钥轮换周期和离职员工账号禁用时限，整理两项规则及来源。","expected_mode":"agent","plan_terms":["密钥","账号"],"answer_terms":["90 天","24 小时"],"expected_tools":["search_knowledge"],"min_plan_steps":2}
+{"id":"agent_document_inventory","task":"先列出知识库中的文档，再找出与安全相关的文档并总结各自的安全主题。","expected_mode":"agent","plan_terms":["文档","安全"],"expected_tools":["list_knowledge_documents","search_knowledge"],"min_plan_steps":2}
+{"id":"rag_unanswerable","task":"公司年会在哪里举办？","expected_mode":"rag","answer_terms":["没有相关信息"]}

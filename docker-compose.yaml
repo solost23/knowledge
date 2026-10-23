@@ -1,16 +1,26 @@
-version: "3"
-
 services:
   knowledge:
     build: "."
-    image: "knowledge:v1.0.0"
+    image: "knowledge:v2.0.0"
     restart: always
     container_name: "knowledge"
+    init: true
     ports:
       - "8086:8086"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AGENT_CHECKPOINT_DB=/app/agent_state/agent_checkpoints.db
     volumes:
+      # embedding 模型不打进镜像，运行时挂载（缺失时容器启动会报错）
       - "${PWD}/huggingface:/app/huggingface"
       - "${PWD}/conf:/app/conf"
       - "${PWD}/chroma_db:/app/chroma_db"
       - "${PWD}/knowledge.db:/app/knowledge.db"
+      - "${PWD}/agent_state:/app/agent_state"
       - "/tmp:/tmp"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8086/docs')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s

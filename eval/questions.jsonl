@@ -1,0 +1,40 @@
+{"id": "q01", "question": "一线城市出差住宿每晚的标准是多少？", "gold_doc": "报销制度.md", "gold_evidence": "每晚 600 元", "reference": "600 元", "keywords": ["600"], "category": "single"}
+{"id": "q02", "question": "报销单最晚要在费用发生后多久内提交？", "gold_doc": "报销制度.md", "gold_evidence": "30 个自然日内", "reference": "30 个自然日内", "keywords": ["30"], "category": "single"}
+{"id": "q03", "question": "单笔 15000 元的报销由谁审批？", "gold_doc": "报销制度.md", "gold_evidence": "5000 元至 20000 元由部门负责人审批", "reference": "部门负责人", "keywords": ["部门负责人"], "category": "single"}
+{"id": "q04", "question": "入职满 5 年的员工有多少天年假？", "gold_doc": "请假与考勤.md", "gold_evidence": "满 5 年 15 天", "reference": "15 天", "keywords": ["15"], "category": "single"}
+{"id": "q05", "question": "病假期间工资按什么比例发放？", "gold_doc": "请假与考勤.md", "gold_evidence": "基本工资的 80%", "reference": "基本工资的 80%", "keywords": ["80%"], "category": "single"}
+{"id": "q06", "question": "调休额度的有效期是多久？", "gold_doc": "请假与考勤.md", "gold_evidence": "3 个月内有效", "reference": "3 个月内有效", "keywords": ["3 个月"], "category": "single"}
+{"id": "q07", "question": "VPN 同时在线的设备最多几台？", "gold_doc": "VPN与远程办公.md", "gold_evidence": "不超过 2 台", "reference": "不超过 2 台", "keywords": ["2 台"], "category": "single"}
+{"id": "q08", "question": "VPN 连续多久无流量会自动断开？", "gold_doc": "VPN与远程办公.md", "gold_evidence": "连续 8 小时无流量", "reference": "8 小时", "keywords": ["8 小时"], "category": "single"}
+{"id": "q09", "question": "每周最多可以远程办公几天？", "gold_doc": "VPN与远程办公.md", "gold_evidence": "每周远程办公不超过 2 天", "reference": "不超过 2 天", "keywords": ["2 天"], "category": "single"}
+{"id": "q10", "question": "生产发布允许在周五进行吗？", "gold_doc": "服务发布流程.md", "gold_evidence": "禁止在周五及节假日前一天发布", "reference": "不允许，禁止在周五发布", "keywords": ["周五", "禁止"], "category": "single"}
+{"id": "q11", "question": "灰度发布先放多少流量、观察多久？", "gold_doc": "服务发布流程.md", "gold_evidence": "5% 流量观察 30 分钟", "reference": "先 5% 流量观察 30 分钟", "keywords": ["5%", "30 分钟"], "category": "single"}
+{"id": "q12", "question": "涉及支付模块的发布变更需要经过谁评审？", "gold_doc": "服务发布流程.md", "gold_evidence": "安全团队评审", "reference": "安全团队", "keywords": ["安全"], "category": "single"}
+{"id": "q13", "question": "P1 故障的响应时限是多久？", "gold_doc": "值班与故障响应.md", "gold_evidence": "5 分钟内响应", "reference": "5 分钟内响应", "keywords": ["5 分钟"], "category": "single"}
+{"id": "q14", "question": "P1 故障多久未定位需要升级到技术负责人？", "gold_doc": "值班与故障响应.md", "gold_evidence": "15 分钟未定位", "reference": "15 分钟", "keywords": ["15 分钟"], "category": "single"}
+{"id": "q15", "question": "全量备份什么时候执行、保留多久？", "gold_doc": "数据库备份与恢复.md", "gold_evidence": "每周日 02:00 执行，保留 30 天", "reference": "每周日 02:00 执行，保留 30 天", "keywords": ["周日", "30 天"], "category": "single"}
+{"id": "q16", "question": "恢复演练多久一次？RTO 目标是多少？", "gold_doc": "数据库备份与恢复.md", "gold_evidence": "每季度进行一次恢复演练，RTO 目标 2 小时", "reference": "每季度一次，RTO 目标 2 小时", "keywords": ["每季度", "2 小时"], "category": "single"}
+{"id": "q17", "question": "错误率超过多少会触发告警？", "gold_doc": "监控与告警规范.md", "gold_evidence": "错误率连续 3 分钟超过 1%", "reference": "连续 3 分钟超过 1%", "keywords": ["1%"], "category": "single"}
+{"id": "q18", "question": "告警多久未认领会自动升级？", "gold_doc": "监控与告警规范.md", "gold_evidence": "10 分钟内认领", "reference": "10 分钟", "keywords": ["10 分钟"], "category": "single"}
+{"id": "q19", "question": "专业版每租户默认多少 QPS？", "gold_doc": "API限流与配额.md", "gold_evidence": "每租户 100 QPS", "reference": "100 QPS", "keywords": ["100"], "category": "single"}
+{"id": "q20", "question": "API 超过 QPS 限制会返回什么状态码？", "gold_doc": "API限流与配额.md", "gold_evidence": "HTTP 429", "reference": "429", "keywords": ["429"], "category": "single"}
+{"id": "q21", "question": "紧急工单的响应和恢复时限分别是多久？", "gold_doc": "客户支持SLA.md", "gold_evidence": "15 分钟内响应，4 小时内恢复", "reference": "15 分钟内响应，4 小时内恢复", "keywords": ["15 分钟", "4 小时"], "category": "single"}
+{"id": "q22", "question": "客户合同属于哪一级数据？", "gold_doc": "数据分级与安全.md", "gold_evidence": "客户合同与个人信息属于机密级", "reference": "机密级", "keywords": ["机密"], "category": "single"}
+{"id": "q23", "question": "导出机密级数据需要谁审批？", "gold_doc": "数据分级与安全.md", "gold_evidence": "导出机密级数据需部门负责人审批", "reference": "部门负责人", "keywords": ["部门负责人"], "category": "single"}
+{"id": "q24", "question": "新员工入职默认配发什么设备？", "gold_doc": "新员工入职指南.md", "gold_evidence": "设备默认 MacBook Pro 14 寸", "reference": "MacBook Pro 14 寸", "keywords": ["MacBook"], "category": "single"}
+{"id": "q25", "question": "安全考试多少分及格？", "gold_doc": "新员工入职指南.md", "gold_evidence": "考试 80 分及格", "reference": "80 分", "keywords": ["80"], "category": "single"}
+{"id": "q26", "question": "企业版的起价是多少？", "gold_doc": "产品定价与套餐.md", "gold_evidence": "企业版：起价 98000 元", "reference": "98000 元", "keywords": ["98000"], "category": "single"}
+{"id": "q27", "question": "存储超额如何计费？", "gold_doc": "产品定价与套餐.md", "gold_evidence": "0.5 元/GB/月", "reference": "0.5 元/GB/月", "keywords": ["0.5"], "category": "single"}
+{"id": "q28", "question": "核心模块的合并请求需要几名评审人？", "gold_doc": "代码评审规范.md", "gold_evidence": "核心模块需 2 名", "reference": "2 名", "keywords": ["2 名"], "category": "single"}
+{"id": "q29", "question": "单测覆盖率要求不低于多少？", "gold_doc": "代码评审规范.md", "gold_evidence": "单测覆盖率不低于 70%", "reference": "70%", "keywords": ["70%"], "category": "single"}
+{"id": "q30", "question": "会议纪要需要在多久内归档？", "gold_doc": "会议与协作规范.md", "gold_evidence": "会议纪要 24 小时内归档", "reference": "24 小时内", "keywords": ["24 小时"], "category": "single"}
+{"id": "q31", "question": "发生 P1 故障时，响应时限和数据库恢复的 RTO 目标分别是什么？", "gold_doc": "值班与故障响应.md", "gold_evidence": "5 分钟内响应", "reference": "P1 故障 5 分钟内响应；数据库 RTO 目标 2 小时", "keywords": ["5 分钟", "2 小时"], "category": "multi"}
+{"id": "q32", "question": "远程办公期间可以操作生产发布吗？", "gold_doc": "VPN与远程办公.md", "gold_evidence": "涉及生产变更的发布窗口不得远程操作", "reference": "不可以", "keywords": ["不得", "不可以"], "category": "multi"}
+{"id": "q33", "question": "公司年会在哪里举办？", "gold_doc": "__none__", "gold_evidence": "", "reference": "知识库中没有相关信息", "keywords": ["不知道", "未找到", "没有", "无法"], "category": "unanswerable"}
+{"id": "q34", "question": "员工体检套餐包含哪些项目？", "gold_doc": "__none__", "gold_evidence": "", "reference": "知识库中没有相关信息", "keywords": ["不知道", "未找到", "没有", "无法"], "category": "unanswerable"}
+{"id": "q35", "question": "如何申请专利？", "gold_doc": "__none__", "gold_evidence": "", "reference": "知识库中没有相关信息", "keywords": ["不知道", "未找到", "没有", "无法"], "category": "unanswerable"}
+{"id": "q36", "question": "发布单缺少需求编号会被如何处理？", "gold_doc": "发布流程实施细则.md", "gold_evidence": "缺失关联的发布单会被自动驳回", "reference": "自动驳回", "keywords": ["驳回"], "category": "single"}
+{"id": "q37", "question": "生产密钥多久强制轮换一次？", "gold_doc": "数据安全实施细则.md", "gold_evidence": "密钥每 90 天强制轮换一次", "reference": "每 90 天轮换一次", "keywords": ["90 天"], "category": "single"}
+{"id": "q38", "question": "离职员工的账号多久内禁用？", "gold_doc": "数据安全实施细则.md", "gold_evidence": "离职员工账号在离职当日 24 小时内禁用", "reference": "24 小时内禁用", "keywords": ["24 小时"], "category": "single"}
+{"id": "q39", "question": "日志中的手机号如何脱敏？", "gold_doc": "数据安全实施细则.md", "gold_evidence": "中间四位使用星号掩码", "reference": "保留前三位与后四位，中间四位用星号掩码", "keywords": ["四位", "星号"], "category": "single"}
+{"id": "q40", "question": "与外部合作方共享数据需要哪些审批？", "gold_doc": "数据安全实施细则.md", "gold_evidence": "需完成安全评估与法务审查，两者缺一不可", "reference": "安全评估与法务审查", "keywords": ["安全", "法务"], "category": "single"}

@@ -1,4 +1,8 @@
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def initialize():
     from universal.config import config, initialize_config_var

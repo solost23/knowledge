@@ -1,7 +1,7 @@
-from langchain_community.document_loaders import Docx2txtLoader
-from langchain_core.documents.base import Document
+import docx2txt
+from langchain_core.documents import Document
 
 
 def load(file_path: str) -> list[Document]:
-    loader = Docx2txtLoader(file_path)
-    return loader.load()
+    text = docx2txt.process(file_path)
+    return [Document(page_content=text, metadata={"source": file_path})]
