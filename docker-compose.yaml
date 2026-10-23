@@ -1,26 +1,38 @@
 services:
-  knowledge:
-    build: "."
-    image: "knowledge:v2.0.0"
-    restart: always
-    container_name: "knowledge"
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: knowledge-api:local
+    restart: unless-stopped
     init: true
-    ports:
-      - "8086:8086"
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AGENT_CHECKPOINT_DB=/app/agent_state/agent_checkpoints.db
+      APP_HOST: 0.0.0.0
+      APP_MODE: release
+      APP_DATA_DIR: /app/backend/data
+      AGENT_CHECKPOINT_DB: /app/backend/data/agent_checkpoints.db
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CHATGLM_API_KEY: ${CHATGLM_API_KEY:-}
     volumes:
-      # embedding 模型不打进镜像，运行时挂载（缺失时容器启动会报错）
-      - "${PWD}/huggingface:/app/huggingface"
-      - "${PWD}/conf:/app/conf"
-      - "${PWD}/chroma_db:/app/chroma_db"
-      - "${PWD}/knowledge.db:/app/knowledge.db"
-      - "${PWD}/agent_state:/app/agent_state"
-      - "/tmp:/tmp"
+      - ./backend/data:/app/backend/data
+    expose:
+      - "8086"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8086/docs')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8086/healthz')"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 90s
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: knowledge-web:local
+    restart: unless-stopped
+    init: true
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"

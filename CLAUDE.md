@@ -1,83 +1,51 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Project map
 
-## Commands
+- `frontend/`: Vue 3 + TypeScript user interface; use npm here.
+- `backend/app/api/`: Flask HTTP endpoints and request validation.
+- `backend/app/agents/`: task routing, LangGraph plan-execute workflow, bounded read-only tools, SQLite checkpoints, status and recovery.
+- `backend/app/knowledge/`: RAG and document ingestion/parsers.
+- `backend/app/infrastructure/`: LLM, embedding, Chroma and SQLite adapters.
+- `backend/evals/`: RAG and Agent evaluation data, metrics and reports.
+- `backend/tests/`: unit tests and fixtures.
+- `backend/data/`: ignored local indexes, metadata, checkpoints and model files.
 
-**Setup (Python 3.11 + uv):**
+## Development commands
+
+Run from the repository root. Python dependencies are managed only by uv:
+
 ```bash
-uv sync --locked # deps declared in pyproject.toml, pinned by uv.lock
-uv lock          # after changing pyproject.toml
+uv sync --project backend --locked
+uv run --project backend --locked python -m app.main
+uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_agent.py'
+uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_ask.py'
+uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_evaluation.py'
+uv run --project backend --locked python backend/scripts/smoke_retrieval.py
+uv run --project backend --locked python backend/evals/run.py --no-answer
 ```
 
-**Run the application:**
+Frontend commands run from `frontend/`:
+
 ```bash
-uv run --locked python main.py          # http://localhost:8086, Swagger at /openapi/swagger
+npm install
+npm run dev
+npm run typecheck
+npm run build
 ```
 
-**Run tests:**
-```bash
-uv run --locked python -m unittest test.doc
-uv run --locked python -m unittest test.question   # needs a reachable LLM
-uv run --locked python -m unittest test.agent      # local graph test, no LLM
-uv run --locked python -m unittest test.ask        # routing tests, no LLM
-uv run --locked python -m unittest test.evaluation # metric tests, no LLM
+## Request flow
+
+```text
+Vue workspace → POST /ask → Agent dispatcher
+                              ├─ RAG → knowledge retrieval → answer + sources
+                              └─ Agent → LangGraph plan/execute/finalize
+                                         ├─ bounded read-only tools
+                                         └─ SQLite checkpoint and recoverable status
 ```
 
-**Offline smoke test (no LLM):**
-```bash
-uv run --locked python scripts/smoke_retrieval.py
-```
+`POST /ask` owns request routing; the client must not choose the mode. Keep HTTP concerns in `api/`, task orchestration in `agents/`, knowledge behavior in `knowledge/`, and provider/storage code in `infrastructure/`.
 
-**RAG evaluation:**
-```bash
-uv run --locked python eval/run.py --no-answer    # retrieval only, no tokens
-uv run --locked python eval/run.py                # retrieval + answers
-```
-Reports land in `eval/reports/`; dataset and metric definitions in `eval/README.md`.
+The supported upload types are PDF, DOCX, PPTX, XLSX and Markdown. Agent tools are read-only and bounded. Evaluation fixtures are synthetic and must not be treated as user knowledge data.
 
-## Architecture
-
-Flask-based knowledge base API that ingests documents and answers questions using LLM + vector search.
-
-**Endpoints:**
-- `POST /upload` — Parse a document and store its embeddings in ChromaDB
-- `POST /ask` — Automatically route a question to RAG or plan-execute Agent
-- `GET /question?question=...` — Compatibility alias for `/ask` routing
-- `GET /agent/runs/<execution_id>` — Read persisted Agent execution status
-- `POST /agent/resume` — Resume a failed Agent execution from its SQLite checkpoint
-- `GET /docs` / `DELETE /docs/<name>` — List / delete notes (metadata in `knowledge.db`)
-
-**Request flow:**
-
-```
-Flask (routers/register.py)
-  ├─ /upload → controllers/doc.py → services/doc.py
-  │     → services/servants/ (parse PDF/DOCX/PPTX/XLSX/MD)
-  │     → RecursiveCharacterTextSplitter (500/50)
-  │     → ChromaDB (./chroma_db)
-  │
-  └─ /ask → services/ask.py → model routing
-        ├─ rag → services/question.py → Chroma retrieval → answer
-        └─ agent → services/agent.py
-              → LangGraph: plan → execute step → advance → finalize
-              → LangChain tool agent (bounded read-only tools)
-              → SQLite checkpoint, status query, failed-run resume
-```
-
-**Key components:**
-- `initialize/` — Singletons for config, Chroma client, Flask app; loads `.env` at import
-- `universal/embedding.py` — fastembed (ONNX) embeddings adapter, used by both app and eval
-- `services/agent.py` — LangGraph plan-execute workflow, SQLite state and bounded read-only tools
-- `eval/agent.py` — End-to-end Agent evaluation for routing, plans, tools, steps and answers
-- `services/servants/` — Per-format parsers (docx2txt / pypdf / python-pptx / openpyxl / plain text) plus LLM factory (`llm.py`)
-- `universal/store.py` — SQLite metadata for uploaded notes
-- `conf/config.yaml` — server, LLM, Chroma, embedding settings
-
-**LLM backends** (set `llm.name`):
-- `chat_gpt` — OpenAI-compatible endpoint (`chat_gpt.base_url` / `chat_gpt.model`, key from `OPENAI_API_KEY`); default
-- `chat_glm` — any OpenAI-compatible local server (`chat_glm.endpoint_url`, `/v1` appended automatically)
-
-**Embedding model:** `BAAI/bge-small-zh-v1.5` via `fastembed` (ONNX Runtime, no torch), cached under `./huggingface/`. Adapter lives in `universal/embedding.py`.
-
-**Storage:** ChromaDB persists to `./chroma_db`, note metadata in `./knowledge.db`. No external services required.
+The service defaults to loopback for local use. Compose serves the frontend on loopback and keeps the API on the internal network. Public deployment requires authentication and per-user data isolation.

@@ -5,12 +5,11 @@
 .uv-cache
 .uv-python
 .hf-home
-huggingface
-chroma_db
-knowledge.db
-agent_state
-agent_checkpoints.db*
-map_cache_*
+frontend/node_modules
+frontend/dist
+backend/data
+backend/evals/reports
+backend/tests/fixtures
 **/__pycache__
 **/*.py[cod]
 .env
@@ -18,5 +17,3 @@ map_cache_*
 .claude
 .vscode
 .idea
-eval/.chroma
-eval/reports
