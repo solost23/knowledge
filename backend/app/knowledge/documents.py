@@ -15,7 +15,7 @@ from app.infrastructure.document_repository import (
     list_docs,
 )
 from app.infrastructure.vector_store import chroma
-from app.knowledge.loaders import doc, excel, markdown, pdf, ppt
+from app.knowledge.loaders import doc, excel, markdown, pdf, ppt, structured
 
 ProgressCallback = Callable[[int, str], None]
 
@@ -88,6 +88,8 @@ class DocumentService:
             )
         elif ext == ".md":
             docs = markdown.load(file_path)
+        elif ext in structured.LOADER_EXTENSIONS:
+            docs = structured.load(file_path, ext)
         else:
             return response.error(400, f'暂不支持{ext[1:]}类型文件')
 

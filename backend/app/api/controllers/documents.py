@@ -7,10 +7,14 @@ from pydantic import BaseModel, Field
 from app.core import response
 from app.knowledge.documents import DocumentService
 from app.knowledge.document_imports import DocumentImportService
+from app.knowledge.loaders.structured import (
+    SUPPORTED_EXTENSIONS,
+    SUPPORTED_EXTENSIONS_TEXT,
+)
 
 tag = Tag(name="笔记管理")
 
-ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.pptx', '.xlsx', '.md'}
+ALLOWED_EXTENSIONS = SUPPORTED_EXTENSIONS
 
 
 class DocPath(BaseModel):
@@ -22,7 +26,7 @@ class UploadTaskPath(BaseModel):
 
 
 class UploadForm(BaseModel):
-    file: object = Field(description="上传的文件，支持 pdf、docx、pptx、xlsx、md")
+    file: object = Field(description=f"上传的文件，支持 {SUPPORTED_EXTENSIONS_TEXT}")
 
 
 class DocumentController:
@@ -39,7 +43,7 @@ class DocumentController:
 
             ext = os.path.splitext(file.filename)[-1].lower()
             if ext not in ALLOWED_EXTENSIONS:
-                return response.error(400, f'不支持的文件类型 {ext}，仅支持 pdf、docx、pptx、xlsx、md')
+                return response.error(400, f'不支持的文件类型 {ext}，仅支持 {SUPPORTED_EXTENSIONS_TEXT}')
 
             filename = os.path.basename(file.filename.replace("\\", "/"))
             try:

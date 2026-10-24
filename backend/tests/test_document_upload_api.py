@@ -42,6 +42,36 @@ class DocumentUploadApiTestCase(unittest.TestCase):
         import_service.submit.assert_called_once()
         import_service.get.assert_called_once_with("job-1")
 
+    def test_upload_accepts_structured_file(self):
+        import_service = Mock()
+        import_service.submit.return_value = {"id": "job-2", "filename": "data.json"}
+
+        with patch(
+            "app.api.controllers.documents.DocumentImportService",
+            return_value=import_service,
+        ):
+            server = Server(lambda app: DocumentController(app).register())
+            uploaded = server.app.test_client().post(
+                "/upload",
+                data={"file": (io.BytesIO(b'{"ok": true}'), "data.json")},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(202, uploaded.status_code)
+        import_service.submit.assert_called_once()
+
+    def test_upload_rejects_unsupported_file(self):
+        with patch("app.api.controllers.documents.DocumentImportService"):
+            server = Server(lambda app: DocumentController(app).register())
+            uploaded = server.app.test_client().post(
+                "/upload",
+                data={"file": (io.BytesIO(b"binary"), "archive.zip")},
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(400, uploaded.status_code)
+        self.assertIn("不支持的文件类型", uploaded.json["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

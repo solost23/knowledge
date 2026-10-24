@@ -578,7 +578,7 @@ onBeforeUnmount(() => {
               <textarea ref="composer" v-model="task" rows="1" placeholder="向你的知识库提问，或描述一项需要完成的任务…" :disabled="loading" @keydown="onComposerKeydown"></textarea>
               <div class="composer-bottom">
                 <div class="composer-tools">
-                  <input ref="fileInput" type="file" accept=".pdf,.docx,.pptx,.xlsx,.md" multiple hidden @change="uploadFiles" />
+                  <input ref="fileInput" type="file" accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.log,.py,.go,.java,.js,.ts,.tsx,.jsx,.sql,.yaml,.yml,.toml,.ini,.cfg,.conf,.sh,.bash,.zsh,.c,.h,.cc,.cpp,.hpp,.rs,.rb,.php,.css,.scss,.vue,.svelte,.csv,.tsv,.json,.html,.htm,.xml" multiple hidden @change="uploadFiles" />
                   <button class="tool-button" :disabled="uploading" title="上传文档" @click="fileInput?.click()"><Upload v-if="!uploading" :size="15" /><LoaderCircle v-else class="spin" :size="15" /><span>{{ uploading ? '正在导入' : '添加资料' }}</span></button>
                   <span class="tool-divider"></span><span class="composer-hint"><kbd>↵</kbd> 发送 <span>·</span> <kbd>⇧ ↵</kbd> 换行</span>
                 </div>
@@ -607,7 +607,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div v-if="visibleDocuments.length === 0" class="document-empty">{{ filter ? '没有匹配的文档' : '上传文档后，这里会显示索引' }}</div>
               </div>
-              <button class="upload-drop" :disabled="uploading" @click="fileInput?.click()"><Upload :size="15" /><span>{{ uploading ? '正在导入…' : '导入文档' }}</span><span class="upload-types">PDF · DOCX · PPTX · XLSX · MD</span></button>
+              <button class="upload-drop" :disabled="uploading" @click="fileInput?.click()"><Upload :size="15" /><span>{{ uploading ? '正在导入…' : '导入文档' }}</span><span class="upload-types">PDF · DOCX · PPTX · XLSX · MD · 文本 · 结构化 · 代码</span></button>
             </section>
 
             <section class="details-section run-section">

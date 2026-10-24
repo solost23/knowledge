@@ -57,7 +57,7 @@ npm run dev
 
 ## 功能和 API
 
-- 上传 `PDF`、`DOCX`、`PPTX`、`XLSX`、`MD`，查看文档清单并删除文档。
+- 上传 `PDF`、`DOCX`、`PPTX`、`XLSX`、`MD`，以及 `TXT`、`CSV`、`TSV`、`JSON`、`HTML`、`XML`、常见代码和配置文件，查看文档清单并删除文档。
 - 前端统一调用 `POST /ask`；后端决定走 RAG 还是 Agent，客户端无需传 `mode`。
 - `POST /ask` 接收当前 `task` 和可选的 `conversation_id`；新对话首轮完成后返回 ID，后续请求携带该 ID 即可连续追问。
 - 原始对话保存在本机 SQLite，刷新后可以继续同一会话；较早消息压缩为摘要供模型使用，原文仍可在会话记录中查看。后端只加载当前会话，不会把其他会话的内容混入。
