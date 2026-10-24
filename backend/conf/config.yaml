@@ -24,6 +24,9 @@ chat_gpt:
 
 chroma:
   persist_directory: "./data/chroma_db"
+  # 相关性分数范围为 0 到 1，低于阈值的片段不会交给模型
+  top_k: 4
+  relevance_threshold: 0.35
 
 embedding:
   # fastembed + ONNX Runtime，模型首次使用时自动下载到 cache_path

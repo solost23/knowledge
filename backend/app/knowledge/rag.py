@@ -21,7 +21,16 @@ class QuestionService:
         llm=None,
     ) -> str:
         try:
-            docs = chroma.db.similarity_search(question)
+            docs = [doc for doc, _score in chroma.search(question)]
+            if not docs:
+                logger.info('知识库没有找到相关资料，跳过问答模型调用')
+                return response.success(
+                    "未找到相关资料",
+                    {
+                        "answer": "知识库中没有找到与问题直接相关的资料。",
+                        "sources": [],
+                    },
+                )
 
             context = "\n\n".join(
                 f"[{index}] 来源：{doc.metadata.get('source', '')}\n{doc.page_content}"

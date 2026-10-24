@@ -12,7 +12,7 @@ from app.infrastructure.vector_store import chroma
 def search_knowledge(query: str, top_k: int = MAX_SEARCH_RESULTS) -> str:
     """按语义搜索知识库，返回匹配片段及来源文件名。"""
     args = SearchKnowledgeInput(query=query, top_k=top_k)
-    docs = chroma.db.similarity_search(args.query, k=args.top_k)
+    docs = [doc for doc, _score in chroma.search(args.query, k=args.top_k)]
     results = [
         {
             "source": doc.metadata.get("source", ""),

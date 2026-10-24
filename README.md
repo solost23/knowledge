@@ -64,6 +64,7 @@ npm run dev
 - 长会话达到压缩阈值后，后端会更新该会话的滚动摘要，并保留最近几轮原文；单次请求的历史上下文限制为约 6,000 字符，摘要只在压缩时额外调用模型。
 - `POST /conversations`、`GET /conversations`、`GET /conversations/{conversation_id}` 和 `DELETE /conversations/{conversation_id}` 用于管理会话。
 - Agent 先规划最多五步，再通过受限的只读知识库工具逐步执行，并返回步骤、来源和最终回答。
+- RAG 和 Agent 知识库搜索都会按 Chroma 相关性分数过滤片段；没有达到阈值时直接返回未找到相关资料，不调用回答模型。阈值和召回数量可在 `backend/conf/config.yaml` 的 `chroma.relevance_threshold`、`chroma.top_k` 中调整。
 - Agent 提供 `GET /agent/runs/{execution_id}` 查询状态，以及 `POST /agent/resume` 恢复失败执行。
 - `GET /healthz` 提供服务健康检查。
 

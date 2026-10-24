@@ -7,12 +7,14 @@ import unittest
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.documents import Document
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
 from app.agents.graph import compile_graph
 from app.agents.service import AgentTaskService
 from app.agents.state import SearchKnowledgeInput, TaskPlan
+from app.agents.tools import search_knowledge
 
 
 class FakePlanner:
@@ -58,6 +60,21 @@ class FailOnceExecutor:
 
 
 class AgentGraphTestCase(unittest.TestCase):
+    def test_search_tool_uses_relevance_filtered_results(self):
+        docs = [
+            Document(page_content="报销额度为600元", metadata={"source": "报销制度.md"})
+        ]
+        with patch("app.agents.tools.chroma.search", return_value=[(docs[0], 0.86)]):
+            result = json.loads(search_knowledge.invoke({
+                "query": "报销额度是多少？",
+                "top_k": 4,
+            }))
+
+        self.assertEqual([{
+            "source": "报销制度.md",
+            "content": "报销额度为600元",
+        }], result["results"])
+
     def test_plan_steps_execute_in_order_and_collect_sources(self):
         planner = FakePlanner()
         executor = FakeExecutor()
