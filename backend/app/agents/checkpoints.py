@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.agents.state import AgentRunBusy
-from app.core.settings import DATA_DIR
+from app.core.settings import DATA_DIR, config
 
 _ACTIVE_EXECUTIONS: set[str] = set()
 _ACTIVE_EXECUTIONS_LOCK = threading.Lock()
@@ -84,10 +84,11 @@ def open_checkpointer():
         yield checkpointer
 
 
-def run_config(execution_id: str) -> dict:
+def run_config(execution_id: str, recursion_limit: int | None = None) -> dict:
+    configured_limit = config.agent["recursion_limit"]
     return {
         "configurable": {"thread_id": execution_id},
-        "recursion_limit": 32,
+        "recursion_limit": configured_limit if recursion_limit is None else recursion_limit,
     }
 
 

@@ -34,4 +34,10 @@ embedding:
   cache_path: "./data/huggingface"
   threads: 4
 
+agent:
+  max_task_length: 2000
+  max_step_length: 300
+  # LangGraph recursion guard; long plans receive a larger limit automatically.
+  recursion_limit: 10000
+
 # 缓存层已随 LangChain 1.x 迁移移除，将在 P3 以带护栏的方式重做

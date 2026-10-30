@@ -1,7 +1,6 @@
 import json
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ToolCallLimitMiddleware
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
@@ -11,13 +10,11 @@ from app.agents.prompts import (
     PLAN_SYSTEM_PROMPT,
 )
 from app.agents.state import (
-    MAX_PLAN_STEPS,
     MAX_STEP_LENGTH,
-    MAX_TOOL_CALLS_PER_STEP,
-    MAX_TOOL_RECURSION,
     AgentState,
     TaskPlan,
 )
+from app.core.settings import config
 from app.agents.tools import (
     extract_sources,
     list_knowledge_documents,
@@ -31,8 +28,6 @@ def compile_graph(planner, executor, finalizer, checkpointer=None, progress_call
         steps = [step.strip() for step in state["plan"] if step.strip()]
         if any(len(step) > MAX_STEP_LENGTH for step in steps):
             raise ValueError(f"每个执行步骤不能超过 {MAX_STEP_LENGTH} 个字符")
-        if len(steps) > MAX_PLAN_STEPS:
-            raise ValueError(f"执行步骤不能超过 {MAX_PLAN_STEPS} 步")
         if not steps and planner is not None:
             if progress_callback:
                 progress_callback({
@@ -49,12 +44,12 @@ def compile_graph(planner, executor, finalizer, checkpointer=None, progress_call
         if progress_callback:
             progress_callback({
                 "stage": "executing",
-                "plan": steps[:MAX_PLAN_STEPS],
+                "plan": steps,
                 "current_step": 0,
                 "active_step": None,
                 "current_action": "执行计划已生成，准备开始",
             })
-        return {"plan": steps[:MAX_PLAN_STEPS], "current_step": 0}
+        return {"plan": steps, "current_step": 0}
 
     def execute_step(state: AgentState):
         index = state["current_step"]
@@ -78,7 +73,7 @@ def compile_graph(planner, executor, finalizer, checkpointer=None, progress_call
         )
         result = executor.invoke(
             {"messages": [HumanMessage(content=prompt)]},
-            config={"recursion_limit": MAX_TOOL_RECURSION},
+            config={"recursion_limit": config.agent["recursion_limit"]},
         )
         messages = result["messages"]
         final_message = next(
@@ -157,10 +152,6 @@ def build_graph(llm, checkpointer=None, progress_callback=None):
         llm,
         tools=[search_knowledge, list_knowledge_documents],
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
-        middleware=[ToolCallLimitMiddleware(
-            run_limit=MAX_TOOL_CALLS_PER_STEP,
-            exit_behavior="end",
-        )],
     )
     return compile_graph(
         planner,

@@ -12,7 +12,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
 from app.agents.graph import compile_graph
-from app.agents.service import AgentTaskService
+from app.agents.service import AgentTaskService, _validate_plan
 from app.agents.state import SearchKnowledgeInput, TaskPlan
 from app.agents.tools import search_knowledge
 
@@ -105,6 +105,29 @@ class AgentGraphTestCase(unittest.TestCase):
         self.assertEqual("新旧制度差异已整理。", result["answer"])
         self.assertEqual([1, 2], [item["active_step"] for item in progress_updates if item.get("active_step")])
         self.assertIn("finalizing", [item["stage"] for item in progress_updates])
+
+    def test_plan_with_more_than_five_steps_executes_without_truncation(self):
+        plan = [f"步骤 {index}" for index in range(1, 8)]
+        planner = FakePlanner()
+        executor = FakeExecutor()
+        graph = compile_graph(planner, executor, FakeFinalizer())
+
+        result = graph.invoke(
+            {
+                "task": "执行七个步骤",
+                "plan": _validate_plan(plan),
+                "current_step": 0,
+                "steps": [],
+                "sources": [],
+                "answer": "",
+            },
+            config={"recursion_limit": 40},
+        )
+
+        self.assertEqual(plan, result["plan"])
+        self.assertEqual(7, len(result["steps"]))
+        self.assertEqual(7, len(executor.prompts))
+        self.assertIn("当前步骤：7/7：步骤 7", executor.prompts[-1])
 
     def test_checkpoint_resumes_from_failed_step_after_reopening_database(self):
         executor = FailOnceExecutor()
@@ -307,8 +330,8 @@ class AgentGraphTestCase(unittest.TestCase):
             SearchKnowledgeInput(query="报销", top_k=5)
         with self.assertRaises(ValidationError):
             TaskPlan(steps=["x" * 301])
-        with self.assertRaises(ValidationError):
-            TaskPlan(steps=["步骤"] * 6)
+        self.assertEqual(7, len(TaskPlan(steps=["步骤"] * 7).steps))
+        self.assertEqual(7, len(_validate_plan(["步骤"] * 7)))
 
 
 if __name__ == "__main__":

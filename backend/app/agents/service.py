@@ -21,7 +21,6 @@ from app.agents.checkpoints import (
 )
 from app.agents.graph import build_graph
 from app.agents.state import (
-    MAX_PLAN_STEPS,
     MAX_STEP_LENGTH,
     MAX_TASK_LENGTH,
     AgentRunBusy,
@@ -53,8 +52,8 @@ def _validate_task(task: str) -> str:
 def _validate_plan(plan: list[str] | None) -> list[str]:
     if plan is None:
         return []
-    if not isinstance(plan, list) or len(plan) > MAX_PLAN_STEPS:
-        raise InvalidAgentRequest(f"执行步骤不能超过 {MAX_PLAN_STEPS} 步")
+    if not isinstance(plan, list):
+        raise InvalidAgentRequest("执行计划必须是步骤列表")
     steps = []
     for step in plan:
         if not isinstance(step, str) or not step.strip():
@@ -129,6 +128,7 @@ class AgentTaskService:
                     progress_callback=self._progress_callback(checkpointer, execution_id),
                 )
                 with claim_execution(execution_id):
+                    recursion_limit = run_config(execution_id)["recursion_limit"]
                     state = graph.invoke(
                         {
                             "task": task,
@@ -138,7 +138,10 @@ class AgentTaskService:
                             "sources": [],
                             "answer": "",
                         },
-                        config=run_config(execution_id),
+                        config=run_config(
+                            execution_id,
+                            recursion_limit=max(recursion_limit, len(plan) * 3 + 10),
+                        ),
                     )
                 if not finish_run(checkpointer, execution_id, "completed", respect_cancel=True):
                     raise AgentRunCancelled(execution_id)

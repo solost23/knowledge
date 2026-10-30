@@ -2,13 +2,12 @@ from typing import Annotated, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 
-MAX_PLAN_STEPS = 5
+from app.core.settings import config
+
 MAX_SEARCH_RESULTS = 4
 MAX_SOURCE_LENGTH = 2000
-MAX_TASK_LENGTH = 2000
-MAX_STEP_LENGTH = 300
-MAX_TOOL_CALLS_PER_STEP = 6
-MAX_TOOL_RECURSION = 16
+MAX_TASK_LENGTH = config.agent["max_task_length"]
+MAX_STEP_LENGTH = config.agent["max_step_length"]
 
 PlanStep = Annotated[str, Field(min_length=1, max_length=MAX_STEP_LENGTH)]
 
@@ -16,8 +15,7 @@ PlanStep = Annotated[str, Field(min_length=1, max_length=MAX_STEP_LENGTH)]
 class TaskPlan(BaseModel):
     steps: list[PlanStep] = Field(
         min_length=1,
-        max_length=MAX_PLAN_STEPS,
-        description="按执行顺序排列的知识库任务步骤，最多五步",
+        description="按执行顺序排列的、足以完成任务的知识库任务步骤",
     )
 
 

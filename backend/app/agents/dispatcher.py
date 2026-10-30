@@ -19,7 +19,6 @@ from app.agents.checkpoints import (
     update_run_progress,
 )
 from app.agents.state import (
-    MAX_PLAN_STEPS,
     MAX_STEP_LENGTH,
     MAX_TASK_LENGTH,
     AgentRunCancelled,
@@ -31,7 +30,7 @@ from app.knowledge.rag import QuestionService
 ROUTER_PROMPT = """判断用户请求应该走普通 RAG 还是计划执行 Agent。
 普通事实问答、单一主题查询、基于一次检索即可回答的请求，选择 rag。
 需要比较多个文档、分头查找多个信息、根据中间结果继续行动的请求，选择 agent。
-选择 agent 时同时给出 1 到 5 个有序、具体的执行步骤；选择 rag 时 steps 留空。
+选择 agent 时同时给出完成任务所需数量的有序、具体执行步骤；选择 rag 时 steps 留空。
 结合对话历史理解当前请求中的指代和省略。resolved_task 应是能脱离历史独立理解的当前请求，不要把历史里已完成的请求当成新任务。
 不要因为用户用了多句话或问号就自动选择 agent。"""
 
@@ -48,8 +47,7 @@ class RequestRoute(BaseModel):
     )
     steps: list[Annotated[str, Field(min_length=1, max_length=MAX_STEP_LENGTH)]] = Field(
         default_factory=list,
-        max_length=MAX_PLAN_STEPS,
-        description="Agent 模式下最多五个有序步骤，RAG 模式下留空",
+        description="Agent 模式下按任务需要生成有序步骤，RAG 模式下留空",
     )
 
 
