@@ -9,6 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from app.core import response
+from app.core.settings import config
 from app.infrastructure.document_repository import (
     delete_doc,
     exists_doc,
@@ -76,7 +77,7 @@ class DocumentService:
         else:
             return response.error(400, f'暂不支持{ext[1:]}类型文件')
 
-        report(28, "文档已提取，正在清洗数据")
+        report(15, "文档已提取，正在清洗数据")
         docs = filter_complex_metadata(docs)
 
         report(32, "文档已解析，正在切分文本")
@@ -94,14 +95,14 @@ class DocumentService:
                 text.metadata["upload_job_id"] = upload_job_id
 
         report(38, f"文本切分完成，共 {len(texts)} 个片段")
+        chroma_config = config.chroma
         existing = exists_doc(original_name)
         old_ids = (
             chroma.db.get(where={"source": original_name}).get("ids", [])
             if existing else []
         )
         added_ids: list[str] = []
-        batch_size = 64
-        batch_count = (len(texts) + batch_size - 1) // batch_size
+        batch_size = max(1, int(chroma_config.get("import_batch_size", 256)))
 
         try:
             for start in range(0, len(texts), batch_size):
@@ -126,7 +127,10 @@ class DocumentService:
             insert_doc(original_name)
         except Exception:
             if added_ids:
-                chroma.db.delete(ids=added_ids)
+                try:
+                    chroma.db.delete(ids=added_ids)
+                except Exception:
+                    logger.exception("向量写入失败后的回滚清理也失败")
             raise
 
         report(98, "正在保存文档索引记录")

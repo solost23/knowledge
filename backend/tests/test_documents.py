@@ -48,10 +48,19 @@ class DocServiceTestCase(unittest.TestCase):
 
         self.assertEqual(200, status_code)
         self.assertTrue(result["success"])
-        self.assertEqual(3, add_texts.call_count)
+        self.assertEqual(1, add_texts.call_count)
         self.assertEqual(98, progress[-1][0])
         self.assertIn("130/130", progress[-2][1])
         self.assertEqual("job-1", add_texts.call_args_list[0].kwargs["metadatas"][0]["upload_job_id"])
+
+    def test_vector_cleanup_failure_does_not_mask_original_write_error(self):
+        write_error = RuntimeError("Chroma upsert failed")
+        with patch("app.knowledge.documents.pdf.load", return_value=[Document(page_content="text")]), \
+                patch("app.knowledge.documents.chroma.db.add_texts", side_effect=write_error), \
+                patch("app.knowledge.documents.chroma.db.delete", side_effect=RuntimeError("cleanup failed")), \
+                patch("app.knowledge.documents.exists_doc", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "Chroma upsert failed"):
+                DocumentService().doc("broken.pdf", ".pdf", "broken.pdf")
 
     def test_list(self):
         with patch("app.knowledge.documents.list_docs", return_value=[]):

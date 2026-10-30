@@ -24,6 +24,7 @@ chat_gpt:
 
 chroma:
   persist_directory: "./data/chroma_db"
+  import_batch_size: 256
   # 相关性分数范围为 0 到 1，低于阈值的片段不会交给模型
   top_k: 4
   relevance_threshold: 0.35
@@ -33,6 +34,7 @@ embedding:
   model_name: "BAAI/bge-small-zh-v1.5"
   cache_path: "./data/huggingface"
   threads: 4
+  batch_size: 256
 
 agent:
   max_task_length: 2000

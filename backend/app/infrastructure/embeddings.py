@@ -10,11 +10,21 @@ _embedding = None
 class FastEmbeddings(Embeddings):
     """fastembed（ONNX Runtime）适配层，无需 torch / sentence-transformers。"""
 
-    def __init__(self, model_name: str, cache_dir: str | None = None, threads: int | None = None):
+    def __init__(
+        self,
+        model_name: str,
+        cache_dir: str | None = None,
+        threads: int | None = None,
+        batch_size: int = 256,
+    ):
         self.model = TextEmbedding(model_name=model_name, cache_dir=cache_dir, threads=threads)
+        self.batch_size = batch_size
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return [vector.tolist() for vector in self.model.embed(texts)]
+        return [
+            vector.tolist()
+            for vector in self.model.embed(texts, batch_size=self.batch_size)
+        ]
 
     def embed_query(self, text: str) -> list[float]:
         return next(self.model.query_embed(text)).tolist()
@@ -30,5 +40,6 @@ def embedding() -> FastEmbeddings:
             model_name=config.embedding.get('model_name', 'BAAI/bge-small-zh-v1.5'),
             cache_dir=str(cache_dir),
             threads=config.embedding.get('threads'),
+            batch_size=int(config.embedding.get('batch_size', 256)),
         )
     return _embedding
