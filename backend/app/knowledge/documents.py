@@ -6,6 +6,7 @@ from collections.abc import Callable
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from app.core import response
 from app.infrastructure.document_repository import (
@@ -61,37 +62,22 @@ class DocumentService:
 
         report(5, "正在提取文档文本")
         if ext == ".pdf":
-            docs = pdf.load(
-                file_path,
-                lambda done, total: report(
-                    5 + int(25 * done / total),
-                    f"正在解析 PDF（{done}/{total} 页）",
-                ) if total else None,
-            )
+            docs = pdf.load(file_path)
         elif ext == ".docx":
             docs = doc.load(file_path)
         elif ext == ".pptx":
-            docs = ppt.load(
-                file_path,
-                lambda done, total: report(
-                    5 + int(25 * done / total),
-                    f"正在解析演示文稿（{done}/{total} 页）",
-                ) if total else None,
-            )
+            docs = ppt.load(file_path)
         elif ext == ".xlsx":
-            docs = excel.load(
-                file_path,
-                lambda done, total: report(
-                    5 + int(25 * done / total),
-                    f"正在解析工作表（{done}/{total} 行）",
-                ) if total else None,
-            )
+            docs = excel.load(file_path)
         elif ext == ".md":
             docs = markdown.load(file_path)
         elif ext in structured.LOADER_EXTENSIONS:
             docs = structured.load(file_path, ext)
         else:
             return response.error(400, f'暂不支持{ext[1:]}类型文件')
+
+        report(28, "文档已提取，正在清洗数据")
+        docs = filter_complex_metadata(docs)
 
         report(32, "文档已解析，正在切分文本")
         splitter = RecursiveCharacterTextSplitter(
