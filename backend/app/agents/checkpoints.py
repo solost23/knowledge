@@ -106,13 +106,14 @@ def claim_execution(execution_id: str):
 
 
 def get_run(checkpointer, execution_id: str):
-    row = checkpointer.conn.execute(
-        "SELECT execution_id, task, status, error_code, progress_json, mode, route_reason, "
-        "conversation_id, cancel_requested, result_json, started_at, finished_at, duration_ms, "
-        "created_at, updated_at "
-        "FROM agent_runs WHERE execution_id = ?",
-        (execution_id,),
-    ).fetchone()
+    with checkpointer.cursor(transaction=False) as cursor:
+        row = cursor.execute(
+            "SELECT execution_id, task, status, error_code, progress_json, mode, route_reason, "
+            "conversation_id, cancel_requested, result_json, started_at, finished_at, duration_ms, "
+            "created_at, updated_at "
+            "FROM agent_runs WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
     if row is None:
         return None
     columns = (
@@ -155,84 +156,82 @@ def _duration_ms(started_at: str | None, finished_at: str | None = None) -> int:
 def create_run(checkpointer, execution_id: str, task: str, progress: dict, mode="agent", conversation_id=None):
     with _CANCEL_REQUESTED_LOCK:
         _CANCEL_REQUESTED.discard(execution_id)
-    checkpointer.conn.execute(
-        "INSERT INTO agent_runs "
-        "(execution_id, task, status, progress_json, mode, conversation_id, started_at) "
-        "VALUES (?, ?, 'running', ?, ?, ?, ?)",
-        (execution_id, task, json.dumps(progress, ensure_ascii=False), mode, conversation_id, _now()),
-    )
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO agent_runs "
+            "(execution_id, task, status, progress_json, mode, conversation_id, started_at) "
+            "VALUES (?, ?, 'running', ?, ?, ?, ?)",
+            (execution_id, task, json.dumps(progress, ensure_ascii=False), mode, conversation_id, _now()),
+        )
 
 
 def set_run_mode(checkpointer, execution_id: str, mode: str, route_reason=None, conversation_id=None):
-    checkpointer.conn.execute(
-        "UPDATE agent_runs SET mode = ?, route_reason = COALESCE(?, route_reason), "
-        "conversation_id = COALESCE(?, conversation_id), updated_at = datetime('now') "
-        "WHERE execution_id = ?",
-        (mode, route_reason, conversation_id, execution_id),
-    )
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        cursor.execute(
+            "UPDATE agent_runs SET mode = ?, route_reason = COALESCE(?, route_reason), "
+            "conversation_id = COALESCE(?, conversation_id), updated_at = datetime('now') "
+            "WHERE execution_id = ?",
+            (mode, route_reason, conversation_id, execution_id),
+        )
 
 
 def set_run_status(checkpointer, execution_id: str, status: str, error_code=None):
-    row = checkpointer.conn.execute(
-        "SELECT started_at FROM agent_runs WHERE execution_id = ?", (execution_id,)
-    ).fetchone()
-    finished_at = _now() if status in ("completed", "failed", "cancelled") else None
-    duration_ms = _duration_ms(row[0], finished_at) if row and finished_at else None
-    checkpointer.conn.execute(
-        "UPDATE agent_runs SET status = ?, error_code = ?, finished_at = ?, duration_ms = ?, "
-        "updated_at = datetime('now') "
-        "WHERE execution_id = ?",
-        (status, error_code, finished_at, duration_ms, execution_id),
-    )
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        row = cursor.execute(
+            "SELECT started_at FROM agent_runs WHERE execution_id = ?", (execution_id,)
+        ).fetchone()
+        finished_at = _now() if status in ("completed", "failed", "cancelled") else None
+        duration_ms = _duration_ms(row[0], finished_at) if row and finished_at else None
+        cursor.execute(
+            "UPDATE agent_runs SET status = ?, error_code = ?, finished_at = ?, duration_ms = ?, "
+            "updated_at = datetime('now') "
+            "WHERE execution_id = ?",
+            (status, error_code, finished_at, duration_ms, execution_id),
+        )
 
 
 def finish_run(checkpointer, execution_id: str, status: str, error_code=None, respect_cancel=False) -> bool:
     finished_at = _now()
-    row = checkpointer.conn.execute(
-        "SELECT started_at, cancel_requested FROM agent_runs "
-        "WHERE execution_id = ? AND status = 'running'",
-        (execution_id,),
-    ).fetchone()
-    if row is None or (respect_cancel and row[1]):
-        return False
-    duration_ms = _duration_ms(row[0], finished_at)
-    cancel_clause = " AND cancel_requested = 0" if respect_cancel else ""
-    cursor = checkpointer.conn.execute(
-        "UPDATE agent_runs SET status = ?, error_code = ?, finished_at = ?, duration_ms = ?, "
-        f"updated_at = datetime('now') WHERE execution_id = ? AND status = 'running'{cancel_clause}",
-        (status, error_code, finished_at, duration_ms, execution_id),
-    )
-    if cursor.rowcount != 1:
-        checkpointer.conn.commit()
-        return False
-    checkpointer.conn.commit()
-    return True
+    with checkpointer.cursor() as cursor:
+        row = cursor.execute(
+            "SELECT started_at, cancel_requested FROM agent_runs "
+            "WHERE execution_id = ? AND status = 'running'",
+            (execution_id,),
+        ).fetchone()
+        if row is None or (respect_cancel and row[1]):
+            return False
+        duration_ms = _duration_ms(row[0], finished_at)
+        cancel_clause = " AND cancel_requested = 0" if respect_cancel else ""
+        cursor.execute(
+            "UPDATE agent_runs SET status = ?, error_code = ?, finished_at = ?, duration_ms = ?, "
+            f"updated_at = datetime('now') WHERE execution_id = ? AND status = 'running'{cancel_clause}",
+            (status, error_code, finished_at, duration_ms, execution_id),
+        )
+        return cursor.rowcount == 1
 
 
 def save_run_result(checkpointer, execution_id: str, result: dict):
-    checkpointer.conn.execute(
-        "UPDATE agent_runs SET result_json = ?, updated_at = datetime('now') WHERE execution_id = ?",
-        (json.dumps(result, ensure_ascii=False), execution_id),
-    )
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        cursor.execute(
+            "UPDATE agent_runs SET result_json = ?, updated_at = datetime('now') WHERE execution_id = ?",
+            (json.dumps(result, ensure_ascii=False), execution_id),
+        )
 
 
 def request_run_cancel(checkpointer, execution_id: str) -> bool:
-    run = get_run(checkpointer, execution_id)
-    if run is None or run["status"] != "running":
-        return False
-    cursor = checkpointer.conn.execute(
-        "UPDATE agent_runs SET cancel_requested = 1, updated_at = datetime('now') "
-        "WHERE execution_id = ? AND status = 'running'",
-        (execution_id,),
-    )
-    if cursor.rowcount != 1:
-        checkpointer.conn.commit()
-        return False
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        run = cursor.execute(
+            "SELECT status FROM agent_runs WHERE execution_id = ?", (execution_id,)
+        ).fetchone()
+        if run is None or run[0] != "running":
+            return False
+        cursor.execute(
+            "UPDATE agent_runs SET cancel_requested = 1, updated_at = datetime('now') "
+            "WHERE execution_id = ? AND status = 'running'",
+            (execution_id,),
+        )
+        if cursor.rowcount != 1:
+            return False
     with _CANCEL_REQUESTED_LOCK:
         _CANCEL_REQUESTED.add(execution_id)
     update_run_progress(checkpointer, execution_id, {
@@ -252,23 +251,23 @@ def clear_run_cancel(execution_id: str):
 
 
 def update_run_progress(checkpointer, execution_id: str, progress: dict):
-    row = checkpointer.conn.execute(
-        "SELECT progress_json FROM agent_runs WHERE execution_id = ?",
-        (execution_id,),
-    ).fetchone()
-    if row is None:
-        return
-    try:
-        current = json.loads(row[0])
-    except (TypeError, ValueError):
-        current = {}
-    current.update(progress)
-    checkpointer.conn.execute(
-        "UPDATE agent_runs SET progress_json = ?, updated_at = datetime('now') "
-        "WHERE execution_id = ?",
-        (json.dumps(current, ensure_ascii=False), execution_id),
-    )
-    checkpointer.conn.commit()
+    with checkpointer.cursor() as cursor:
+        row = cursor.execute(
+            "SELECT progress_json FROM agent_runs WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            current = json.loads(row[0])
+        except (TypeError, ValueError):
+            current = {}
+        current.update(progress)
+        cursor.execute(
+            "UPDATE agent_runs SET progress_json = ?, updated_at = datetime('now') "
+            "WHERE execution_id = ?",
+            (json.dumps(current, ensure_ascii=False), execution_id),
+        )
 
 
 def checkpoint_values(checkpointer, execution_id: str) -> dict:
