@@ -3,10 +3,10 @@ import os.path
 import uuid
 from collections.abc import Callable
 
+from langchain_community.vectorstores.utils import filter_complex_metadata
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 from werkzeug.datastructures.file_storage import FileStorage
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from app.core import response
 from app.core.settings import config
@@ -23,22 +23,19 @@ ProgressCallback = Callable[[int, str], None]
 
 
 class DocumentService:
-    def __init__(self):
-        pass
-
     def upload(self, file: FileStorage) -> str:
         ext = os.path.splitext(file.filename)[-1].lower()
         original_name = os.path.basename(file.filename)
-        file_path = f'/tmp/{original_name}_{uuid.uuid4()}{ext}'
+        file_path = f"/tmp/{original_name}_{uuid.uuid4()}{ext}"
 
-        logger.info(f'filepath: {file_path}')
+        logger.info(f"filepath: {file_path}")
 
         try:
             file.save(file_path)
             return self.doc(file_path, ext, original_name)
         except Exception as e:
-            logger.error(f'上传处理失败: {e}')
-            return response.error(500, f'文件处理失败: {str(e)}')
+            logger.error(f"上传处理失败: {e}")
+            return response.error(500, f"文件处理失败: {str(e)}")
         finally:
             file.close()
             if os.path.isfile(file_path):
@@ -75,15 +72,15 @@ class DocumentService:
         elif ext in structured.LOADER_EXTENSIONS:
             docs = structured.load(file_path, ext)
         else:
-            return response.error(400, f'暂不支持{ext[1:]}类型文件')
+            return response.error(400, f"暂不支持{ext[1:]}类型文件")
 
         report(15, "文档已提取，正在清洗数据")
         docs = filter_complex_metadata(docs)
 
         report(32, "文档已解析，正在切分文本")
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
+            chunk_size=config.documents["chunk_size"],
+            chunk_overlap=config.documents["chunk_overlap"],
         )
         texts = splitter.split_documents(docs)
         if not texts:
@@ -99,14 +96,15 @@ class DocumentService:
         existing = exists_doc(original_name)
         old_ids = (
             chroma.db.get(where={"source": original_name}).get("ids", [])
-            if existing else []
+            if existing
+            else []
         )
         added_ids: list[str] = []
         batch_size = max(1, int(chroma_config.get("import_batch_size", 256)))
 
         try:
             for start in range(0, len(texts), batch_size):
-                batch = texts[start:start + batch_size]
+                batch = texts[start : start + batch_size]
                 batch_ids = [str(uuid.uuid4()) for _ in batch]
                 added_ids.extend(batch_ids)
                 chroma.db.add_texts(
@@ -155,6 +153,6 @@ class DocumentService:
             chroma.db.delete(ids=ids)
 
         if not delete_doc(name):
-            return response.error(404, f'笔记 {name} 不存在')
+            return response.error(404, f"笔记 {name} 不存在")
 
         return response.success("成功", None)

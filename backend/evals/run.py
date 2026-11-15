@@ -11,6 +11,7 @@
     evals/reports/<tag>.json   完整逐题结果
     evals/reports/<tag>.md     汇总报告
 """
+
 import argparse
 import json
 import os
@@ -25,10 +26,10 @@ sys.path.insert(0, ROOT)
 
 import yaml
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import ChatOpenAI
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_openai import ChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.infrastructure.embeddings import FastEmbeddings
 
@@ -84,7 +85,9 @@ def build_llm():
     cfg = CFG["chat_gpt"]
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
-        raise SystemExit("OPENAI_API_KEY 未设置，无法生成答案；可加 --no-answer 只评检索")
+        raise SystemExit(
+            "OPENAI_API_KEY 未设置，无法生成答案；可加 --no-answer 只评检索"
+        )
     return ChatOpenAI(
         model=cfg.get("model", "gpt-4o-mini"),
         api_key=key,
@@ -121,7 +124,9 @@ def answer_question(llm, question: str, docs):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default=os.path.join(ROOT, "eval", "corpus"))
-    ap.add_argument("--questions", default=os.path.join(ROOT, "eval", "questions.jsonl"))
+    ap.add_argument(
+        "--questions", default=os.path.join(ROOT, "eval", "questions.jsonl")
+    )
     ap.add_argument("--k", type=int, default=5)
     ap.add_argument("--chunk-size", type=int, default=500)
     ap.add_argument("--chunk-overlap", type=int, default=50)
@@ -182,7 +187,14 @@ def main():
                 row["tokens"] = tokens
                 if unanswerable:
                     row["abstained"] = any(
-                        m in answer for m in ["不知道", "未找到", "没有找到", "没有相关", "无法回答"]
+                        m in answer
+                        for m in [
+                            "不知道",
+                            "未找到",
+                            "没有找到",
+                            "没有相关",
+                            "无法回答",
+                        ]
                     )
                 else:
                     normalized_answer = norm(answer).lower()
@@ -210,12 +222,22 @@ def main():
         "build_ms": round(build_ms, 1),
         "questions": len(rows),
         "answerable": len(answerable),
-        "doc_hit_rate": round(sum(bool(r.get("doc_hit")) for r in answerable) / max(len(answerable), 1), 4),
-        "evidence_hit_rate": round(sum(bool(r.get("evidence_hit")) for r in answerable) / max(len(answerable), 1), 4),
-        "mrr": round(
-            sum(1.0 / r["rank"] for r in answerable if r.get("rank")) / max(len(answerable), 1), 4
+        "doc_hit_rate": round(
+            sum(bool(r.get("doc_hit")) for r in answerable) / max(len(answerable), 1), 4
         ),
-        "avg_retrieval_ms": round(statistics.mean([r["retrieval_ms"] for r in rows]), 1),
+        "evidence_hit_rate": round(
+            sum(bool(r.get("evidence_hit")) for r in answerable)
+            / max(len(answerable), 1),
+            4,
+        ),
+        "mrr": round(
+            sum(1.0 / r["rank"] for r in answerable if r.get("rank"))
+            / max(len(answerable), 1),
+            4,
+        ),
+        "avg_retrieval_ms": round(
+            statistics.mean([r["retrieval_ms"] for r in rows]), 1
+        ),
     }
 
     if answered:
@@ -225,7 +247,9 @@ def main():
         summary["answer_accuracy"] = round(
             sum(bool(r.get("keyword_hit")) for r in answered) / len(answered), 4
         )
-        summary["avg_gen_ms"] = round(statistics.mean([r["gen_ms"] for r in answered]), 1)
+        summary["avg_gen_ms"] = round(
+            statistics.mean([r["gen_ms"] for r in answered]), 1
+        )
         summary["total_tokens"] = sum(r.get("tokens", 0) for r in answered)
     if unanswerable_rows:
         abstain_rows = [r for r in unanswerable_rows if "abstained" in r]
@@ -248,7 +272,9 @@ def main():
         f.write("\n## 检索失败\n\n")
         for r in answerable:
             if not r.get("doc_hit"):
-                f.write(f"- {r['id']} {r['question']} → 期望 {r['gold_doc']}，实际 {r['sources'][:3]}\n")
+                f.write(
+                    f"- {r['id']} {r['question']} → 期望 {r['gold_doc']}，实际 {r['sources'][:3]}\n"
+                )
         f.write("\n## 答案未覆盖关键词\n\n")
         for r in answered:
             if not r.get("keyword_hit"):

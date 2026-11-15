@@ -9,7 +9,9 @@ _local = threading.local()
 def _conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn"):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        _local.conn = sqlite3.connect(str(DATA_DIR / "knowledge.db"), check_same_thread=False)
+        _local.conn = sqlite3.connect(
+            str(DATA_DIR / "knowledge.db"), check_same_thread=False
+        )
         _local.conn.row_factory = sqlite3.Row
         _init(_local.conn)
     return _local.conn
@@ -40,7 +42,9 @@ def exists_doc(name: str) -> bool:
 
 def list_docs() -> list[dict]:
     conn = _conn()
-    rows = conn.execute("SELECT id, name, created_at FROM docs ORDER BY created_at DESC").fetchall()
+    rows = conn.execute(
+        "SELECT id, name, created_at FROM docs ORDER BY created_at DESC"
+    ).fetchall()
     return [dict(row) for row in rows]
 
 

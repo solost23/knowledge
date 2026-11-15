@@ -3,7 +3,7 @@ import os
 import sqlite3
 import threading
 from contextlib import closing, contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.agents.state import AgentRunBusy
@@ -59,7 +59,9 @@ def open_checkpointer():
         """)
         columns = {
             row[1]
-            for row in checkpointer.conn.execute("PRAGMA table_info(agent_runs)").fetchall()
+            for row in checkpointer.conn.execute(
+                "PRAGMA table_info(agent_runs)"
+            ).fetchall()
         }
         migrations = {
             "progress_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -88,7 +90,9 @@ def run_config(execution_id: str, recursion_limit: int | None = None) -> dict:
     configured_limit = config.agent["recursion_limit"]
     return {
         "configurable": {"thread_id": execution_id},
-        "recursion_limit": configured_limit if recursion_limit is None else recursion_limit,
+        "recursion_limit": configured_limit
+        if recursion_limit is None
+        else recursion_limit,
     }
 
 
@@ -117,11 +121,23 @@ def get_run(checkpointer, execution_id: str):
     if row is None:
         return None
     columns = (
-        "execution_id", "task", "status", "error_code", "progress_json", "mode",
-        "route_reason", "conversation_id", "cancel_requested", "result_json", "started_at",
-        "finished_at", "duration_ms", "created_at", "updated_at",
+        "execution_id",
+        "task",
+        "status",
+        "error_code",
+        "progress_json",
+        "mode",
+        "route_reason",
+        "conversation_id",
+        "cancel_requested",
+        "result_json",
+        "started_at",
+        "finished_at",
+        "duration_ms",
+        "created_at",
+        "updated_at",
     )
-    run = dict(zip(columns, row))
+    run = dict(zip(columns, row, strict=True))
     run["cancel_requested"] = bool(run["cancel_requested"])
     try:
         run["progress"] = json.loads(run.pop("progress_json"))
@@ -129,7 +145,9 @@ def get_run(checkpointer, execution_id: str):
         run["progress"] = {}
         run.pop("progress_json", None)
     try:
-        run["result"] = json.loads(run.pop("result_json")) if run["result_json"] else None
+        run["result"] = (
+            json.loads(run.pop("result_json")) if run["result_json"] else None
+        )
     except (TypeError, ValueError):
         run["result"] = None
         run.pop("result_json", None)
@@ -139,7 +157,7 @@ def get_run(checkpointer, execution_id: str):
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _duration_ms(started_at: str | None, finished_at: str | None = None) -> int:
@@ -147,13 +165,22 @@ def _duration_ms(started_at: str | None, finished_at: str | None = None) -> int:
         return 0
     try:
         started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        finished = datetime.fromisoformat((finished_at or _now()).replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(
+            (finished_at or _now()).replace("Z", "+00:00")
+        )
         return max(0, round((finished - started).total_seconds() * 1000))
     except (TypeError, ValueError):
         return 0
 
 
-def create_run(checkpointer, execution_id: str, task: str, progress: dict, mode="agent", conversation_id=None):
+def create_run(
+    checkpointer,
+    execution_id: str,
+    task: str,
+    progress: dict,
+    mode="agent",
+    conversation_id=None,
+):
     with _CANCEL_REQUESTED_LOCK:
         _CANCEL_REQUESTED.discard(execution_id)
     with checkpointer.cursor() as cursor:
@@ -161,11 +188,20 @@ def create_run(checkpointer, execution_id: str, task: str, progress: dict, mode=
             "INSERT INTO agent_runs "
             "(execution_id, task, status, progress_json, mode, conversation_id, started_at) "
             "VALUES (?, ?, 'running', ?, ?, ?, ?)",
-            (execution_id, task, json.dumps(progress, ensure_ascii=False), mode, conversation_id, _now()),
+            (
+                execution_id,
+                task,
+                json.dumps(progress, ensure_ascii=False),
+                mode,
+                conversation_id,
+                _now(),
+            ),
         )
 
 
-def set_run_mode(checkpointer, execution_id: str, mode: str, route_reason=None, conversation_id=None):
+def set_run_mode(
+    checkpointer, execution_id: str, mode: str, route_reason=None, conversation_id=None
+):
     with checkpointer.cursor() as cursor:
         cursor.execute(
             "UPDATE agent_runs SET mode = ?, route_reason = COALESCE(?, route_reason), "
@@ -190,7 +226,9 @@ def set_run_status(checkpointer, execution_id: str, status: str, error_code=None
         )
 
 
-def finish_run(checkpointer, execution_id: str, status: str, error_code=None, respect_cancel=False) -> bool:
+def finish_run(
+    checkpointer, execution_id: str, status: str, error_code=None, respect_cancel=False
+) -> bool:
     finished_at = _now()
     with checkpointer.cursor() as cursor:
         row = cursor.execute(
@@ -234,9 +272,13 @@ def request_run_cancel(checkpointer, execution_id: str) -> bool:
             return False
     with _CANCEL_REQUESTED_LOCK:
         _CANCEL_REQUESTED.add(execution_id)
-    update_run_progress(checkpointer, execution_id, {
-        "current_action": "正在停止，等待当前模型或工具调用返回",
-    })
+    update_run_progress(
+        checkpointer,
+        execution_id,
+        {
+            "current_action": "正在停止，等待当前模型或工具调用返回",
+        },
+    )
     return True
 
 

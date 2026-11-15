@@ -3,7 +3,12 @@ import json
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-from app.agents.state import MAX_SEARCH_RESULTS, MAX_SOURCE_LENGTH, SearchKnowledgeInput
+from app.agents.state import (
+    MAX_LISTED_DOCUMENTS,
+    MAX_SEARCH_RESULTS,
+    MAX_SOURCE_LENGTH,
+    SearchKnowledgeInput,
+)
 from app.infrastructure.document_repository import list_docs
 from app.infrastructure.vector_store import chroma
 
@@ -26,7 +31,11 @@ def search_knowledge(query: str, top_k: int = MAX_SEARCH_RESULTS) -> str:
 @tool
 def list_knowledge_documents() -> str:
     """列出已上传到知识库的文档名称和上传时间。"""
-    return json.dumps({"documents": list_docs()[:50]}, ensure_ascii=False, default=str)
+    return json.dumps(
+        {"documents": list_docs()[:MAX_LISTED_DOCUMENTS]},
+        ensure_ascii=False,
+        default=str,
+    )
 
 
 def message_text(content) -> str:

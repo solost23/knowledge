@@ -5,24 +5,36 @@ import time
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
+
 from pydantic import ValidationError
 
-from app.agents.dispatcher import AskService, RequestRoute, dispatch_request
+from app.agents.ask_service import AskService
+from app.agents.dispatcher import RequestRoute, dispatch_request
 from app.agents.service import AgentTaskService
 from app.api.controllers.ask import AskRequest
 from app.api.router import register
 from app.core import response
 from app.core.server import Server
-from app.infrastructure.conversation_repository import create_conversation, get_conversation
+from app.infrastructure.conversation_repository import (
+    create_conversation,
+    get_conversation,
+)
 
 
 class AskServiceTestCase(unittest.TestCase):
     def setUp(self):
         self.temp_directory = tempfile.TemporaryDirectory()
-        self.database_env = patch.dict(os.environ, {
-            "CONVERSATION_DB": os.path.join(self.temp_directory.name, "conversations.sqlite"),
-            "AGENT_CHECKPOINT_DB": os.path.join(self.temp_directory.name, "agent.sqlite"),
-        })
+        self.database_env = patch.dict(
+            os.environ,
+            {
+                "CONVERSATION_DB": os.path.join(
+                    self.temp_directory.name, "conversations.sqlite"
+                ),
+                "AGENT_CHECKPOINT_DB": os.path.join(
+                    self.temp_directory.name, "agent.sqlite"
+                ),
+            },
+        )
         self.database_env.start()
         self.addCleanup(self.database_env.stop)
         self.addCleanup(self.temp_directory.cleanup)
@@ -34,13 +46,20 @@ class AskServiceTestCase(unittest.TestCase):
     def test_routes_single_retrieval_request_to_rag(self):
         llm = object()
         route = RequestRoute(
-            mode="rag", reason="单次检索足以回答", resolved_task="知识库里有哪些报销规则？"
+            mode="rag",
+            reason="单次检索足以回答",
+            resolved_task="知识库里有哪些报销规则？",
         )
         rag_result = ({"code": 0, "data": {"answer": "答案", "sources": []}}, 200)
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=llm), \
-                patch("app.agents.dispatcher.classify_task", return_value=route), \
-                patch("app.agents.dispatcher.QuestionService.question", return_value=rag_result) as question, \
-                patch("app.agents.dispatcher.AgentTaskService.execute") as agent:
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch("app.agents.dispatcher.classify_task", return_value=route),
+            patch(
+                "app.agents.dispatcher.QuestionService.question",
+                return_value=rag_result,
+            ) as question,
+            patch("app.agents.dispatcher.AgentTaskService.execute") as agent,
+        ):
             result, status = AskService().ask("知识库里有哪些报销规则？")
 
         self.assertEqual(200, status)
@@ -59,13 +78,27 @@ class AskServiceTestCase(unittest.TestCase):
             resolved_task="比较新版和旧版报销制度",
             steps=["查找新版", "查找旧版并比较"],
         )
-        agent_result = ({"code": 0, "data": {
-            "execution_id": str(uuid4()), "status": "running", "answer": "", "steps": []
-        }}, 202)
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=llm), \
-                patch("app.agents.dispatcher.classify_task", return_value=route), \
-                patch("app.agents.dispatcher.AgentTaskService.start", return_value=agent_result) as agent, \
-                patch("app.agents.dispatcher.QuestionService.question") as question:
+        agent_result = (
+            {
+                "code": 0,
+                "data": {
+                    "execution_id": str(uuid4()),
+                    "status": "running",
+                    "answer": "",
+                    "steps": [],
+                },
+            },
+            202,
+        )
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch("app.agents.dispatcher.classify_task", return_value=route),
+            patch(
+                "app.agents.dispatcher.AgentTaskService.start",
+                return_value=agent_result,
+            ) as agent,
+            patch("app.agents.dispatcher.QuestionService.question") as question,
+        ):
             result, status = AskService().ask("比较新版和旧版报销制度")
 
         self.assertEqual(202, status)
@@ -78,16 +111,21 @@ class AskServiceTestCase(unittest.TestCase):
         question.assert_not_called()
 
     def test_model_error_response_does_not_expose_exception_details(self):
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=object()), \
-                patch("app.agents.dispatcher.classify_task", side_effect=RuntimeError("secret-token-value")), \
-                patch("app.agents.dispatcher.logger.exception"):
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch(
+                "app.agents.dispatcher.classify_task",
+                side_effect=RuntimeError("secret-token-value"),
+            ),
+            patch("app.agents.ask_service.logger.exception"),
+        ):
             result, status = AskService().ask("普通问题")
 
         self.assertEqual(502, status)
         self.assertNotIn("secret-token-value", result["message"])
 
     def test_rejects_empty_and_oversized_tasks_before_model_call(self):
-        with patch("app.agents.dispatcher.build_configured_llm") as build_llm:
+        with patch("app.agents.ask_service.build_configured_llm") as build_llm:
             empty, empty_status = AskService().ask("   ")
             long, long_status = AskService().ask("x" * 2001)
 
@@ -99,7 +137,7 @@ class AskServiceTestCase(unittest.TestCase):
 
     def test_start_returns_a_pollable_run_before_routing_finishes(self):
         conversation_id = create_conversation()["id"]
-        with patch("app.agents.dispatcher._ASK_EXECUTOR.submit") as submit:
+        with patch("app.agents.ask_service._ASK_EXECUTOR.submit") as submit:
             result, status = AskService().start("需要判断路由的问题", conversation_id)
             execution_id = result["data"]["execution_id"]
             progress, progress_status = AgentTaskService().get_status(execution_id)
@@ -129,9 +167,14 @@ class AskServiceTestCase(unittest.TestCase):
                 raise TimeoutError("test did not release RAG execution")
             return response.success("成功", {"answer": "不应写入的回答", "sources": []})
 
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=object()), \
-                patch("app.agents.dispatcher.classify_task", return_value=route), \
-                patch("app.agents.dispatcher.QuestionService.question", side_effect=blocking_question):
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch("app.agents.ask_service.classify_task", return_value=route),
+            patch(
+                "app.agents.ask_service.QuestionService.question",
+                side_effect=blocking_question,
+            ),
+        ):
             accepted, accepted_status = AskService().start("普通问题", conversation_id)
             execution_id = accepted["data"]["execution_id"]
             try:
@@ -159,9 +202,15 @@ class AskServiceTestCase(unittest.TestCase):
             "code": 0,
             "success": True,
             "message": "任务已启动",
-            "data": {"execution_id": str(uuid4()), "status": "running", "mode": "routing"},
+            "data": {
+                "execution_id": str(uuid4()),
+                "status": "running",
+                "mode": "routing",
+            },
         }
-        with patch("app.api.controllers.ask.AskService.start", return_value=(accepted, 202)) as start:
+        with patch(
+            "app.api.controllers.ask.AskService.start", return_value=(accepted, 202)
+        ) as start:
             result = client.post("/ask", json={"task": "普通知识库问题"})
 
         self.assertEqual(202, result.status_code)
@@ -170,22 +219,25 @@ class AskServiceTestCase(unittest.TestCase):
 
     def test_http_ask_rejects_frontend_mode_field(self):
         client = Server(register).app.test_client()
-        with patch("app.api.controllers.ask.AskService.ask") as ask:
+        with patch("app.api.controllers.ask.AskService.start") as start:
             result = client.post("/ask", json={"task": "比较制度", "mode": "agent"})
 
         self.assertEqual(422, result.status_code)
-        ask.assert_not_called()
+        start.assert_not_called()
 
     def test_http_resume_and_status_routes_use_execution_id(self):
         client = Server(register).app.test_client()
         execution_id = uuid4()
-        with patch(
-            "app.api.controllers.ask.AgentTaskService.resume",
-            return_value=({"code": 0, "success": True, "data": {}}, 200),
-        ) as resume, patch(
-            "app.api.controllers.ask.AgentTaskService.get_status",
-            return_value=({"code": 0, "success": True, "data": {}}, 200),
-        ) as get_status:
+        with (
+            patch(
+                "app.api.controllers.ask.AgentTaskService.resume",
+                return_value=({"code": 0, "success": True, "data": {}}, 200),
+            ) as resume,
+            patch(
+                "app.api.controllers.ask.AgentTaskService.get_status",
+                return_value=({"code": 0, "success": True, "data": {}}, 200),
+            ) as get_status,
+        ):
             resume_response = client.post(
                 "/agent/resume", json={"execution_id": str(execution_id)}
             )
@@ -201,7 +253,10 @@ class AskServiceTestCase(unittest.TestCase):
         execution_id = uuid4()
         with patch(
             "app.api.controllers.ask.AgentTaskService.cancel",
-            return_value=({"code": 0, "success": True, "data": {"cancel_requested": True}}, 200),
+            return_value=(
+                {"code": 0, "success": True, "data": {"cancel_requested": True}},
+                200,
+            ),
         ) as cancel:
             result = client.post(f"/agent/runs/{execution_id}/cancel")
 
@@ -220,7 +275,9 @@ class AskServiceTestCase(unittest.TestCase):
         deleted = client.delete(f"/conversations/{conversation_id}")
         missing = client.get(f"/conversations/{conversation_id}")
 
-        self.assertEqual([conversation_id], [item["id"] for item in listed.json["data"]])
+        self.assertEqual(
+            [conversation_id], [item["id"] for item in listed.json["data"]]
+        )
         self.assertEqual([], fetched.json["data"]["messages"])
         self.assertEqual(200, deleted.status_code)
         self.assertEqual(404, missing.status_code)
@@ -243,9 +300,17 @@ class AskServiceTestCase(unittest.TestCase):
             {"role": "user", "content": "报销申请需要在几天内提交？"},
             {"role": "assistant", "content": "需要在费用发生后30天内提交。"},
         ]
-        rag_result = ({"code": 0, "data": {"answer": "期限是30天。", "sources": []}}, 200)
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=model), \
-                patch("app.agents.dispatcher.QuestionService.question", return_value=rag_result) as question:
+        rag_result = (
+            {"code": 0, "data": {"answer": "期限是30天。", "sources": []}},
+            200,
+        )
+        with (
+            patch("app.agents.dispatcher.build_configured_llm", return_value=model),
+            patch(
+                "app.agents.dispatcher.QuestionService.question",
+                return_value=rag_result,
+            ) as question,
+        ):
             result, status = dispatch_request("为什么？", history=history)
 
         self.assertEqual(200, status)
@@ -261,24 +326,34 @@ class AskServiceTestCase(unittest.TestCase):
         llm = object()
 
         def dispatched(task, llm=None, history=None, on_agent_complete=None):
-            return response.success("任务完成", {
-                "answer": f"回答：{task}",
-                "mode": "rag",
-                "sources": [],
-            })
+            return response.success(
+                "任务完成",
+                {
+                    "answer": f"回答：{task}",
+                    "mode": "rag",
+                    "sources": [],
+                },
+            )
 
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=llm), \
-                patch("app.agents.dispatcher.dispatch_request", side_effect=dispatched) as dispatch:
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch(
+                "app.agents.ask_service.dispatch_request", side_effect=dispatched
+            ) as dispatch,
+        ):
             first, first_status = AskService().ask("第一轮问题", conversation_id)
             second, second_status = AskService().ask("接着解释", conversation_id)
 
         self.assertEqual((200, 200), (first_status, second_status))
         self.assertEqual(conversation_id, first["data"]["conversation_id"])
         self.assertEqual([], dispatch.call_args_list[0].kwargs["history"])
-        self.assertEqual([
-            {"role": "user", "content": "第一轮问题"},
-            {"role": "assistant", "content": "回答：第一轮问题"},
-        ], dispatch.call_args_list[1].kwargs["history"])
+        self.assertEqual(
+            [
+                {"role": "user", "content": "第一轮问题"},
+                {"role": "assistant", "content": "回答：第一轮问题"},
+            ],
+            dispatch.call_args_list[1].kwargs["history"],
+        )
         conversation = get_conversation(conversation_id)
         self.assertEqual("第一轮问题", conversation["title"])
         self.assertEqual(4, len(conversation["messages"]))
@@ -293,35 +368,43 @@ class AskServiceTestCase(unittest.TestCase):
         )
 
         def start_agent(task, plan, llm, on_complete):
-            on_complete({
-                "execution_id": str(uuid4()),
-                "status": "completed",
-                "answer": "完成",
-                "steps": [],
-                "sources": [],
-            })
+            on_complete(
+                {
+                    "execution_id": str(uuid4()),
+                    "status": "completed",
+                    "answer": "完成",
+                    "steps": [],
+                    "sources": [],
+                }
+            )
             return {
                 "code": 0,
                 "success": True,
                 "message": "Agent 任务已启动",
                 "data": {
-                "execution_id": str(uuid4()),
-                "status": "running",
-                "answer": "",
-                "steps": [],
-                "sources": [],
+                    "execution_id": str(uuid4()),
+                    "status": "running",
+                    "answer": "",
+                    "steps": [],
+                    "sources": [],
                 },
             }, 202
 
-        with patch("app.agents.dispatcher.build_configured_llm", return_value=object()), \
-                patch("app.agents.dispatcher.classify_task", return_value=route), \
-                patch("app.agents.dispatcher.AgentTaskService.start", side_effect=start_agent):
+        with (
+            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch("app.agents.dispatcher.classify_task", return_value=route),
+            patch(
+                "app.agents.dispatcher.AgentTaskService.start", side_effect=start_agent
+            ),
+        ):
             result, status = AskService().ask("比较资料", conversation_id)
 
         self.assertEqual(202, status)
         self.assertEqual(conversation_id, result["data"]["conversation_id"])
         conversation = get_conversation(conversation_id)
-        self.assertEqual(["user", "assistant"], [item["role"] for item in conversation["messages"]])
+        self.assertEqual(
+            ["user", "assistant"], [item["role"] for item in conversation["messages"]]
+        )
         saved = conversation["messages"][1]["result"]
         self.assertEqual("agent", saved["mode"])
         self.assertEqual("需要分步比较资料", saved["route_reason"])

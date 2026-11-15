@@ -27,9 +27,14 @@ class FakeSummarizer:
 class ConversationMemoryTestCase(unittest.TestCase):
     def setUp(self):
         self.temp_directory = tempfile.TemporaryDirectory()
-        self.database_env = patch.dict(os.environ, {
-            "CONVERSATION_DB": os.path.join(self.temp_directory.name, "conversations.sqlite")
-        })
+        self.database_env = patch.dict(
+            os.environ,
+            {
+                "CONVERSATION_DB": os.path.join(
+                    self.temp_directory.name, "conversations.sqlite"
+                )
+            },
+        )
         self.database_env.start()
         self.addCleanup(self.database_env.stop)
         self.addCleanup(self.temp_directory.cleanup)
@@ -72,9 +77,7 @@ class ConversationMemoryTestCase(unittest.TestCase):
     def test_history_is_isolated_and_bounded_per_conversation(self):
         first = create_conversation()
         second = create_conversation()
-        append_exchange(
-            first["id"], "第一轮" * 300, "回答" * 2000, {"answer": "回答"}
-        )
+        append_exchange(first["id"], "第一轮" * 300, "回答" * 2000, {"answer": "回答"})
 
         first_history = recent_history(first["id"])
         second_history = recent_history(second["id"])

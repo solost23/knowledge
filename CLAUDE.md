@@ -4,7 +4,7 @@
 
 - `frontend/`: Vue 3 + TypeScript user interface; use npm here.
 - `backend/app/api/`: Flask HTTP endpoints and request validation.
-- `backend/app/agents/`: task routing, LangGraph plan-execute workflow, bounded read-only tools, SQLite checkpoints, status and recovery.
+- `backend/app/agents/`: request routing (`dispatcher.py`), conversation request lifecycle (`ask_service.py`), LangGraph plan-execute workflow, bounded read-only tools, SQLite checkpoints, status and recovery.
 - `backend/app/knowledge/`: RAG and document ingestion/parsers.
 - `backend/app/infrastructure/`: LLM, embedding, Chroma and SQLite adapters.
 - `backend/evals/`: RAG and Agent evaluation data, metrics and reports.
@@ -21,6 +21,8 @@ uv run --project backend --locked python -m app.main
 uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_agent.py'
 uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_ask.py'
 uv run --project backend --locked python -m unittest discover -s backend/tests -p 'test_evaluation.py'
+uv run --project backend --locked --group dev ruff check backend/app backend/tests backend/evals
+uv run --project backend --locked --group dev ruff format --check backend/app backend/tests backend/evals
 uv run --project backend --locked python backend/scripts/smoke_retrieval.py
 uv run --project backend --locked python backend/evals/run.py --no-answer
 ```

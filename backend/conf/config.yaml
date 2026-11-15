@@ -20,6 +20,7 @@ chat_gpt:
   model: "claude-sonnet-5"
   max_token: 4096
   temperature: 0
+  timeout: 60
 
 
 chroma:
@@ -39,7 +40,27 @@ embedding:
 agent:
   max_task_length: 2000
   max_step_length: 300
+  max_search_results: 4
+  max_search_query_length: 500
+  max_source_length: 2000
+  max_listed_documents: 50
   # LangGraph recursion guard; long plans receive a larger limit automatically.
   recursion_limit: 10000
 
-# 缓存层已随 LangChain 1.x 迁移移除，将在 P3 以带护栏的方式重做
+documents:
+  chunk_size: 500
+  chunk_overlap: 50
+
+upload:
+  max_size_mb: 100
+
+conversation:
+  max_summary_chars: 1500
+  max_history_messages: 10
+  max_history_chars: 6000
+  max_history_message_chars: 2500
+  keep_recent_messages: 6
+  compress_after_messages: 8
+  compress_after_chars: 8000
+  max_compression_batch_chars: 8000
+  max_compression_message_chars: 2000

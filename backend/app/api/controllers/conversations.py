@@ -1,7 +1,8 @@
-from flask_openapi3 import Tag
-from flask import Flask
-from pydantic import BaseModel
 from uuid import UUID
+
+from flask import Flask
+from flask_openapi3 import Tag
+from pydantic import BaseModel
 
 from app.core import response
 from app.infrastructure.conversation_repository import (

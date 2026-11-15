@@ -7,27 +7,29 @@ from evals.agent_metrics import score_agent_rows
 
 class AgentEvaluationMetricsTestCase(unittest.TestCase):
     def test_scores_routing_plan_steps_tools_and_answer_terms(self):
-        summary = score_agent_rows([
-            {
-                "expected_mode": "rag",
-                "mode": "rag",
-                "answer_terms": ["600", "元"],
-                "answer": "标准是 600 元",
-            },
-            {
-                "expected_mode": "agent",
-                "mode": "agent",
-                "success": True,
-                "plan": ["查新版制度", "查旧版并比较"],
-                "min_plan_steps": 2,
-                "plan_terms": ["新版", "旧版"],
-                "steps": [{"tools": ["search_knowledge"]}],
-                "tools": ["search_knowledge"],
-                "expected_tools": ["search_knowledge"],
-                "answer_terms": ["新版", "旧版"],
-                "answer": "新版和旧版制度有差异",
-            },
-        ])
+        summary = score_agent_rows(
+            [
+                {
+                    "expected_mode": "rag",
+                    "mode": "rag",
+                    "answer_terms": ["600", "元"],
+                    "answer": "标准是 600 元",
+                },
+                {
+                    "expected_mode": "agent",
+                    "mode": "agent",
+                    "success": True,
+                    "plan": ["查新版制度", "查旧版并比较"],
+                    "min_plan_steps": 2,
+                    "plan_terms": ["新版", "旧版"],
+                    "steps": [{"tools": ["search_knowledge"]}],
+                    "tools": ["search_knowledge"],
+                    "expected_tools": ["search_knowledge"],
+                    "answer_terms": ["新版", "旧版"],
+                    "answer": "新版和旧版制度有差异",
+                },
+            ]
+        )
 
         self.assertEqual(1.0, summary["route_accuracy"])
         self.assertEqual(1.0, summary["agent_plan_valid_rate"])
@@ -40,18 +42,36 @@ class AgentEvaluationMetricsTestCase(unittest.TestCase):
         class FakeService:
             def ask(self, task):
                 if task == "simple":
-                    return ({"success": True, "data": {
-                        "mode": "rag", "answer": "答案 600 元",
-                    }}, 200)
-                return ({"success": True, "data": {
-                    "mode": "agent",
-                    "answer": "新版与旧版差异",
-                    "plan": ["查新版", "查旧版并比较"],
-                    "steps": [{"tools": ["search_knowledge"]}],
-                }}, 200)
+                    return (
+                        {
+                            "success": True,
+                            "data": {
+                                "mode": "rag",
+                                "answer": "答案 600 元",
+                            },
+                        },
+                        200,
+                    )
+                return (
+                    {
+                        "success": True,
+                        "data": {
+                            "mode": "agent",
+                            "answer": "新版与旧版差异",
+                            "plan": ["查新版", "查旧版并比较"],
+                            "steps": [{"tools": ["search_knowledge"]}],
+                        },
+                    },
+                    200,
+                )
 
         questions = [
-            {"id": "rag", "task": "simple", "expected_mode": "rag", "answer_terms": ["600"]},
+            {
+                "id": "rag",
+                "task": "simple",
+                "expected_mode": "rag",
+                "answer_terms": ["600"],
+            },
             {
                 "id": "agent",
                 "task": "compare",

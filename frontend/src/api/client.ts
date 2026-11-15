@@ -27,7 +27,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResponse
 
   if (!response.ok || !body?.success) {
     const message = body?.message || (response.status === 413
-      ? '文件过大，请将文件控制在 100 MiB 以内'
+      ? '文件超过服务端上传大小限制'
       : response.status === 504
         ? '服务处理超时，请刷新文档列表确认导入状态'
       : `请求失败 (${response.status})`)
@@ -65,7 +65,7 @@ function uploadFile(
       }
 
       const message = body?.message || (xhr.status === 413
-        ? '文件过大，请将文件控制在 100 MiB 以内'
+        ? '文件超过服务端上传大小限制'
         : xhr.status === 504
           ? '服务处理超时，请刷新文档列表确认导入状态'
           : `请求失败 (${xhr.status || '网络错误'})`)

@@ -55,6 +55,19 @@ npm run dev
 
 浏览器打开 `http://127.0.0.1:5173`。Vite 会把 `/api` 请求转发给本机后端；后端 Swagger 地址是 `http://127.0.0.1:8086/openapi/swagger`。
 
+## 配置
+
+运行参数默认集中在 `backend/conf/config.yaml`。在仓库根目录或 `backend/` 下的 `.env` 可以用 `APP_CONFIG__区块__参数` 覆盖任意已有配置项；变量名不区分大小写，值按 YAML 标量解析。例如：
+
+```dotenv
+APP_CONFIG__CHAT_GPT__BASE_URL=https://api.openai.com/v1
+APP_CONFIG__CHAT_GPT__MODEL=gpt-4.1-mini
+APP_CONFIG__DOCUMENTS__CHUNK_SIZE=700
+APP_CONFIG__AGENT__MAX_TASK_LENGTH=3000
+```
+
+`APP_HOST`、`APP_PORT`、`APP_MODE`、`APP_DATA_DIR` 和 `APP_CONFIG_FILE` 是服务级环境变量。Compose 部署的上传限制通过 `UPLOAD_MAX_SIZE_MB` 同时设置 API 和 Nginx；本地开发通过 `APP_CONFIG__UPLOAD__MAX_SIZE_MB` 调整 API 限制。
+
 ## 功能和 API
 
 - 上传 `PDF`、`DOCX`、`PPTX`、`XLSX`、`MD`，以及 `TXT`、`CSV`、`TSV`、`JSON`、`HTML`、`XML`、常见代码和配置文件，查看文档清单并删除文档。
@@ -74,6 +87,13 @@ npm run dev
 
 ```shell
 uv run --project backend --locked --with pytest pytest -q backend/tests
+```
+
+运行后端静态检查和格式校验：
+
+```shell
+uv run --project backend --locked --group dev ruff check backend/app backend/tests backend/evals
+uv run --project backend --locked --group dev ruff format --check backend/app backend/tests backend/evals
 ```
 
 也可以按功能单独运行测试：

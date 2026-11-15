@@ -1,12 +1,12 @@
 import os
 
-from flask_openapi3 import Tag
 from flask import Flask, request
+from flask_openapi3 import Tag
 from pydantic import BaseModel, Field
 
 from app.core import response
-from app.knowledge.documents import DocumentService
 from app.knowledge.document_imports import DocumentImportService
+from app.knowledge.documents import DocumentService
 from app.knowledge.loaders.structured import (
     SUPPORTED_EXTENSIONS,
     SUPPORTED_EXTENSIONS_TEXT,
@@ -37,13 +37,15 @@ class DocumentController:
     def register(self):
         @self.app.post("/upload", tags=[tag], summary="上传笔记")
         def upload():
-            file = request.files.get('file')
+            file = request.files.get("file")
             if not file or not file.filename:
-                return response.error(400, '请上传文件')
+                return response.error(400, "请上传文件")
 
             ext = os.path.splitext(file.filename)[-1].lower()
             if ext not in ALLOWED_EXTENSIONS:
-                return response.error(400, f'不支持的文件类型 {ext}，仅支持 {SUPPORTED_EXTENSIONS_TEXT}')
+                return response.error(
+                    400, f"不支持的文件类型 {ext}，仅支持 {SUPPORTED_EXTENSIONS_TEXT}"
+                )
 
             filename = os.path.basename(file.filename.replace("\\", "/"))
             try:

@@ -21,7 +21,9 @@ def score_agent_rows(rows: list[dict]) -> dict:
         terms = row.get("answer_terms", [])
         if terms:
             answer = _normalized(row.get("answer", ""))
-            answer_recalls.append(sum(_normalized(term) in answer for term in terms) / len(terms))
+            answer_recalls.append(
+                sum(_normalized(term) in answer for term in terms) / len(terms)
+            )
 
     for row in agent_rows:
         plan = row.get("plan", [])
@@ -37,7 +39,8 @@ def score_agent_rows(rows: list[dict]) -> dict:
         if plan_terms:
             normalized_plan = _normalized(" ".join(plan))
             plan_recalls.append(
-                sum(_normalized(term) in normalized_plan for term in plan_terms) / len(plan_terms)
+                sum(_normalized(term) in normalized_plan for term in plan_terms)
+                / len(plan_terms)
             )
 
         expected_tools = row.get("expected_tools", [])
@@ -52,7 +55,9 @@ def score_agent_rows(rows: list[dict]) -> dict:
         "agent_completion_rate": round(agent_successes / max(len(agent_rows), 1), 4),
         "agent_plan_valid_rate": round(sum(plan_valid) / max(len(plan_valid), 1), 4),
         "agent_step_completion_rate": round(completed_steps / max(planned_steps, 1), 4),
-        "agent_plan_term_recall": round(sum(plan_recalls) / max(len(plan_recalls), 1), 4),
+        "agent_plan_term_recall": round(
+            sum(plan_recalls) / max(len(plan_recalls), 1), 4
+        ),
         "expected_tool_recall": round(
             sum(expected_tool_hits) / max(len(expected_tool_hits), 1), 4
         ),

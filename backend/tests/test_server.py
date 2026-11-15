@@ -8,7 +8,9 @@ from app.core.server import MAX_REQUEST_BYTES, Server
 class ServerTestCase(unittest.TestCase):
     def test_oversized_request_returns_json_error(self):
         def register(app):
-            app.add_url_rule("/upload", "upload", lambda: request.get_data(), methods=["POST"])
+            app.add_url_rule(
+                "/upload", "upload", lambda: request.get_data(), methods=["POST"]
+            )
 
         server = Server(register)
         server.app.config["MAX_CONTENT_LENGTH"] = 8

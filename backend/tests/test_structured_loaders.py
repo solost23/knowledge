@@ -28,7 +28,9 @@ class StructuredLoaderTestCase(unittest.TestCase):
             self.assertIn("98", content)
 
     def test_json_is_loaded_without_jq_runtime_error(self):
-        content = self._load_content(".json", json.dumps({"名称": "知序", "items": [1, 2]}))
+        content = self._load_content(
+            ".json", json.dumps({"名称": "知序", "items": [1, 2]})
+        )
         self.assertIn("名称", content)
         self.assertIn("知序", content)
         self.assertIn("items", content)
@@ -44,7 +46,9 @@ class StructuredLoaderTestCase(unittest.TestCase):
         self.assertTrue(content.strip())
 
     def test_xml_load_does_not_require_downloading_nlp_model(self):
-        content = self._load_content(".xml", '<root version="1"><item>内容</item></root>')
+        content = self._load_content(
+            ".xml", '<root version="1"><item>内容</item></root>'
+        )
         self.assertIn("内容", content)
 
 

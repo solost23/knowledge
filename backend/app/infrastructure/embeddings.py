@@ -1,6 +1,7 @@
+from pathlib import Path
+
 from fastembed import TextEmbedding
 from langchain_core.embeddings import Embeddings
-from pathlib import Path
 
 from app.core.settings import BACKEND_DIR, config
 
@@ -17,7 +18,9 @@ class FastEmbeddings(Embeddings):
         threads: int | None = None,
         batch_size: int = 256,
     ):
-        self.model = TextEmbedding(model_name=model_name, cache_dir=cache_dir, threads=threads)
+        self.model = TextEmbedding(
+            model_name=model_name, cache_dir=cache_dir, threads=threads
+        )
         self.batch_size = batch_size
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -33,13 +36,13 @@ class FastEmbeddings(Embeddings):
 def embedding() -> FastEmbeddings:
     global _embedding
     if _embedding is None:
-        cache_dir = Path(config.embedding.get('cache_path', './data/huggingface'))
+        cache_dir = Path(config.embedding.get("cache_path", "./data/huggingface"))
         if not cache_dir.is_absolute():
             cache_dir = BACKEND_DIR / cache_dir
         _embedding = FastEmbeddings(
-            model_name=config.embedding.get('model_name', 'BAAI/bge-small-zh-v1.5'),
+            model_name=config.embedding.get("model_name", "BAAI/bge-small-zh-v1.5"),
             cache_dir=str(cache_dir),
-            threads=config.embedding.get('threads'),
-            batch_size=int(config.embedding.get('batch_size', 256)),
+            threads=config.embedding.get("threads"),
+            batch_size=int(config.embedding.get("batch_size", 256)),
         )
     return _embedding

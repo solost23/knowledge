@@ -12,8 +12,6 @@ from langchain_core.documents import Document
 
 def load(file_path: str) -> list[Document]:
     loader = UnstructuredWordDocumentLoader(
-        file_path=file_path,
-        mode="elements",
-        strategy="fast"
+        file_path=file_path, mode="elements", strategy="fast"
     )
     return loader.load()

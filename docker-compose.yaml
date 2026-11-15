@@ -11,6 +11,7 @@ services:
       APP_MODE: release
       APP_DATA_DIR: /app/backend/data
       AGENT_CHECKPOINT_DB: /app/backend/data/agent_checkpoints.db
+      APP_CONFIG__UPLOAD__MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-100}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       CHATGLM_API_KEY: ${CHATGLM_API_KEY:-}
     volumes:
@@ -31,6 +32,8 @@ services:
     image: knowledge-web:local
     restart: unless-stopped
     init: true
+    environment:
+      UPLOAD_MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-100}
     depends_on:
       api:
         condition: service_healthy

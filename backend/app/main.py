@@ -8,12 +8,7 @@ from app.core.server import Server
 
 
 def on_exit(signo, frame):
-    """
-    信号处理
-    :param signo:
-    :param frame:
-    :return:
-    """
+    """Stop the process after a termination signal."""
     logger.info("进程结束")
     sys.exit(0)
 

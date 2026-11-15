@@ -5,16 +5,17 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from app.core.settings import DATA_DIR
+from app.core.settings import DATA_DIR, config
 
-MAX_HISTORY_MESSAGES = 10
-MAX_HISTORY_CHARS = 6000
-MAX_HISTORY_MESSAGE_CHARS = 2500
-KEEP_RECENT_MESSAGES = 6
-COMPRESS_AFTER_MESSAGES = 8
-COMPRESS_AFTER_CHARS = 8000
-MAX_COMPRESSION_BATCH_CHARS = 8000
-MAX_COMPRESSION_MESSAGE_CHARS = 2000
+_CONVERSATION_CONFIG = config.conversation
+MAX_HISTORY_MESSAGES = _CONVERSATION_CONFIG["max_history_messages"]
+MAX_HISTORY_CHARS = _CONVERSATION_CONFIG["max_history_chars"]
+MAX_HISTORY_MESSAGE_CHARS = _CONVERSATION_CONFIG["max_history_message_chars"]
+KEEP_RECENT_MESSAGES = _CONVERSATION_CONFIG["keep_recent_messages"]
+COMPRESS_AFTER_MESSAGES = _CONVERSATION_CONFIG["compress_after_messages"]
+COMPRESS_AFTER_CHARS = _CONVERSATION_CONFIG["compress_after_chars"]
+MAX_COMPRESSION_BATCH_CHARS = _CONVERSATION_CONFIG["max_compression_batch_chars"]
+MAX_COMPRESSION_MESSAGE_CHARS = _CONVERSATION_CONFIG["max_compression_message_chars"]
 
 
 def _database_path() -> str:
@@ -148,13 +149,15 @@ def recent_history(conversation_id: str) -> list[dict[str, str]]:
             "role": "assistant",
             "content": f"此前对话摘要（仅用于理解当前问题）：\n{summary}",
         }
-    remaining = MAX_HISTORY_CHARS - (len(summary_message["content"]) if summary_message else 0)
+    remaining = MAX_HISTORY_CHARS - (
+        len(summary_message["content"]) if summary_message else 0
+    )
     recent = []
     for row in rows:
         content = row["content"]
         if remaining <= 0:
             break
-        content = content[:min(remaining, MAX_HISTORY_MESSAGE_CHARS)]
+        content = content[: min(remaining, MAX_HISTORY_MESSAGE_CHARS)]
         recent.append({"role": row["role"], "content": content})
         remaining -= len(content)
     return ([summary_message] if summary_message else []) + list(reversed(recent))

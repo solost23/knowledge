@@ -13,16 +13,15 @@ without adding another document-processing runtime.
 # from pathlib import Path
 # from xml.etree import ElementTree
 
-from langchain_community.document_loaders import UnstructuredCSVLoader
-from langchain_community.document_loaders import UnstructuredTSVLoader
-from langchain_community.document_loaders import UnstructuredHTMLLoader
-from langchain_community.document_loaders import UnstructuredXMLLoader
-
-from langchain_community.document_loaders import JSONLoader
-from langchain_community.document_loaders import TextLoader
-
+from langchain_community.document_loaders import (
+    JSONLoader,
+    TextLoader,
+    UnstructuredCSVLoader,
+    UnstructuredHTMLLoader,
+    UnstructuredTSVLoader,
+    UnstructuredXMLLoader,
+)
 from langchain_core.documents import Document
-
 
 TEXT_EXTENSIONS = frozenset(
     {
@@ -60,9 +59,7 @@ TEXT_EXTENSIONS = frozenset(
     }
 )
 
-STRUCTURED_EXTENSIONS = frozenset(
-    {".csv", ".tsv", ".json", ".html", ".htm", ".xml"}
-)
+STRUCTURED_EXTENSIONS = frozenset({".csv", ".tsv", ".json", ".html", ".htm", ".xml"})
 
 # The order is used by API error messages and kept stable for the UI contract.
 SUPPORTED_EXTENSION_LIST = (
@@ -76,7 +73,9 @@ SUPPORTED_EXTENSION_LIST = (
 )
 LOADER_EXTENSIONS = TEXT_EXTENSIONS | STRUCTURED_EXTENSIONS
 SUPPORTED_EXTENSIONS = frozenset(SUPPORTED_EXTENSION_LIST)
-SUPPORTED_EXTENSIONS_TEXT = "、".join(ext[1:].upper() for ext in SUPPORTED_EXTENSION_LIST)
+SUPPORTED_EXTENSIONS_TEXT = "、".join(
+    ext[1:].upper() for ext in SUPPORTED_EXTENSION_LIST
+)
 
 
 # def _read_text(file_path: str) -> str:
@@ -94,12 +93,9 @@ SUPPORTED_EXTENSIONS_TEXT = "、".join(ext[1:].upper() for ext in SUPPORTED_EXTE
 # def _document(content: str, file_path: str) -> list[Document]:
 #     return [Document(page_content=content, metadata={"source": file_path})]
 
+
 def _load_plain_text(file_path: str) -> list[Document]:
-    loader = TextLoader(
-        file_path=file_path,
-        encoding="utf-8",
-        autodetect_encoding=True
-    )
+    loader = TextLoader(file_path=file_path, encoding="utf-8", autodetect_encoding=True)
     return loader.load()
 
 
@@ -108,6 +104,7 @@ def _load_plain_text(file_path: str) -> list[Document]:
 #     rows = csv.reader(io.StringIO(content, newline=""), delimiter=delimiter)
 #     lines = ["\t".join(cell.strip() for cell in row) for row in rows]
 #     return _document("\n".join(lines), file_path)
+
 
 def _load_csv(file_path: str) -> list[Document]:
     loader = UnstructuredCSVLoader(
@@ -123,6 +120,7 @@ def _load_tsv(file_path: str) -> list[Document]:
         mode="elements",
     )
     return loader.load()
+
 
 # def _load_json(file_path: str) -> list[Document]:
 #     value = json.loads(_read_text(file_path))
@@ -217,6 +215,7 @@ def _load_json(file_path: str) -> list[Document]:
 #     parser.close()
 #     return _document(parser.text(), file_path)
 
+
 def _load_html(file_path: str) -> list[Document]:
     loader = UnstructuredHTMLLoader(
         file_path=file_path,
@@ -248,6 +247,7 @@ def _load_html(file_path: str) -> list[Document]:
 #     root = ElementTree.fromstring(_read_text(file_path))
 #     return _document("\n".join(_xml_lines(root)), file_path)
 
+
 def _load_xml(file_path: str) -> list[Document]:
     loader = UnstructuredXMLLoader(
         file_path=file_path,
@@ -270,7 +270,7 @@ def load(file_path: str, extension: str) -> list[Document]:
         # return _load_delimited(file_path, ",")
         return _load_csv(file_path=file_path)
     if extension == ".tsv":
-        #return _load_delimited(file_path, "\t")
+        # return _load_delimited(file_path, "\t")
         return _load_tsv(file_path=file_path)
     if extension == ".json":
         return _load_json(file_path=file_path)

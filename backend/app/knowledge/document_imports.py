@@ -48,7 +48,9 @@ class DocumentImportService:
     def get(self, job_id: str) -> dict | None:
         return get_upload_job(job_id)
 
-    def _process(self, job_id: str, filename: str, extension: str, file_path: str) -> None:
+    def _process(
+        self, job_id: str, filename: str, extension: str, file_path: str
+    ) -> None:
         progress = 1
         update_upload_job(
             job_id,

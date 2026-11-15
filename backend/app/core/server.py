@@ -1,10 +1,11 @@
-from flask_openapi3 import OpenAPI, Info
+from flask_openapi3 import Info, OpenAPI
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.core import response
 from app.core.settings import config
 
-MAX_REQUEST_BYTES = 100 * 1024 * 1024
+MAX_UPLOAD_SIZE_MB = int(config.upload["max_size_mb"])
+MAX_REQUEST_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 class Server:
@@ -16,13 +17,16 @@ class Server:
 
         @self.app.errorhandler(RequestEntityTooLarge)
         def request_too_large(_error):
-            return response.error(413, "上传文件过大，请将文件控制在 100 MiB 以内")
+            return response.error(
+                413,
+                f"上传文件过大，请将文件控制在 {MAX_UPLOAD_SIZE_MB} MiB 以内",
+            )
 
         self.app.add_url_rule("/healthz", "healthz", lambda: {"status": "ok"})
 
     def run(self):
         mode = True
-        if config.mode == 'release':
+        if config.mode == "release":
             mode = False
 
         self.app.run(
@@ -30,6 +34,3 @@ class Server:
             port=config.port,
             debug=mode,
         )
-
-    def stop(self):
-        pass

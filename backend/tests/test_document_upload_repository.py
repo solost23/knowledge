@@ -8,7 +8,10 @@ from app.infrastructure import document_upload_repository as repository
 
 class DocumentUploadRepositoryTestCase(unittest.TestCase):
     def test_job_lifecycle_is_persisted(self):
-        with TemporaryDirectory() as data_dir, patch.object(repository, "DATA_DIR", Path(data_dir)):
+        with (
+            TemporaryDirectory() as data_dir,
+            patch.object(repository, "DATA_DIR", Path(data_dir)),
+        ):
             created = repository.create_upload_job("job-1", "manual.pdf")
             repository.update_upload_job(
                 "job-1",
