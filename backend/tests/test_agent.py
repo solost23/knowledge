@@ -213,7 +213,8 @@ class AgentGraphTestCase(unittest.TestCase):
             ),
             patch("app.agents.execution.build_graph", side_effect=build_graph),
             patch("app.agents.service.build_graph", side_effect=build_graph),
-            patch("app.agents.execution.build_configured_llm", return_value=object()),
+            patch("app.agents.execution.LLM", return_value=object()),
+            patch("app.agents.service.LLM", return_value=object()),
             patch("app.agents.execution.logger.exception"),
         ):
             service = AgentTaskService()

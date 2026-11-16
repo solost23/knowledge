@@ -1,69 +1,52 @@
 import os
+from typing import ClassVar
 
 from langchain_openai import ChatOpenAI
 
 from app.core.settings import config
-
-ChatGptName = "chat_gpt"
-ChatGLmName = "chat_glm"
 
 
 class LLMConfigurationError(RuntimeError):
     """Raised when the selected model cannot be configured from application settings."""
 
 
-def build_configured_llm() -> ChatOpenAI:
-    name = config.llm.get("name")
-    if name == ChatGLmName:
-        return chat_glm()
-    if name == ChatGptName:
-        return chat_gpt()
-    raise LLMConfigurationError(f"未知的 LLM 配置: {name}")
+class LLM(ChatOpenAI):
+    """从应用配置创建可直接用于 RAG 和 Agent 的聊天模型。"""
 
+    CHAT_GPT: ClassVar[str] = "chat_gpt"
+    CHAT_GLM: ClassVar[str] = "chat_glm"
 
-def _chat(
-    model: str,
-    base_url: str | None,
-    api_key: str,
-    temperature: float,
-    max_tokens: int,
-    timeout: float,
-) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-        max_retries=1,
-    )
+    def __init__(self, name: str | None = None):
+        name = config.llm.get("name") if name is None else name
 
+        if name == self.CHAT_GPT:
+            settings = config.chat_gpt
+            default_model = "gpt-4o-mini"
 
-def chat_gpt() -> ChatOpenAI:
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise LLMConfigurationError("环境变量 OPENAI_API_KEY 未设置")
-    return _chat(
-        model=config.chat_gpt.get("model", "gpt-4o-mini"),
-        base_url=config.chat_gpt.get("base_url"),
-        api_key=api_key,
-        temperature=config.chat_gpt.get("temperature", 0),
-        max_tokens=config.chat_gpt.get("max_token", 4096),
-        timeout=config.chat_gpt.get("timeout", 60),
-    )
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise LLMConfigurationError("环境变量 OPENAI_API_KEY 未设置")
 
+            base_url = settings.get("base_url")
 
-def chat_glm() -> ChatOpenAI:
-    """任何暴露 OpenAI 兼容接口的本地推理服务（vLLM / Ollama / ChatGLM）都可以走这里。"""
-    base_url = config.chat_glm.get("endpoint_url", "http://127.0.0.1:8000").rstrip("/")
-    if not base_url.endswith("/v1"):
-        base_url += "/v1"
-    return _chat(
-        model=config.chat_glm.get("model", "chatglm3"),
-        base_url=base_url,
-        api_key=os.environ.get("CHATGLM_API_KEY", "EMPTY"),
-        temperature=config.chat_glm.get("temperature", 0),
-        max_tokens=config.chat_glm.get("max_token", 4096),
-        timeout=config.chat_glm.get("timeout", 60),
-    )
+        elif name == self.CHAT_GLM:
+            settings = config.chat_glm
+            default_model = "chatglm3"
+            api_key = os.environ.get("CHATGLM_API_KEY", "EMPTY")
+
+            base_url = settings.get("endpoint_url", "http://127.0.0.1:8000").rstrip("/")
+            if not base_url.endswith("/v1"):
+                base_url += "/v1"
+
+        else:
+            raise LLMConfigurationError(f"未知的 LLM 配置: {name}")
+
+        super().__init__(
+            model=settings.get("model", default_model),
+            api_key=api_key,
+            base_url=base_url,
+            temperature=settings.get("temperature", 0),
+            max_tokens=settings.get("max_token", 4096),
+            timeout=settings.get("timeout", 60),
+            max_retries=1,
+        )

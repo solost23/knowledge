@@ -29,7 +29,7 @@ from app.agents.state import (
     InvalidAgentRequest,
 )
 from app.core import response
-from app.infrastructure.llm import LLMConfigurationError, build_configured_llm
+from app.infrastructure.llm import LLM, LLMConfigurationError
 
 _AGENT_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-run")
 
@@ -235,7 +235,7 @@ class AgentTaskService:
                 if run["status"] not in ("failed", "running") or not values:
                     return response.error(409, "该执行记录当前不可恢复")
 
-                llm = build_configured_llm()
+                llm = LLM()
                 set_run_status(checkpointer, execution_id, "running")
                 update_run_progress(
                     checkpointer,

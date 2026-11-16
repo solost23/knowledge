@@ -52,7 +52,7 @@ class AskServiceTestCase(unittest.TestCase):
         )
         rag_result = ({"code": 0, "data": {"answer": "答案", "sources": []}}, 200)
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch("app.agents.ask_service.LLM", return_value=llm),
             patch("app.agents.dispatcher.classify_task", return_value=route),
             patch(
                 "app.agents.dispatcher.QuestionService.question",
@@ -91,7 +91,7 @@ class AskServiceTestCase(unittest.TestCase):
             202,
         )
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch("app.agents.ask_service.LLM", return_value=llm),
             patch("app.agents.dispatcher.classify_task", return_value=route),
             patch(
                 "app.agents.dispatcher.AgentTaskService.start",
@@ -112,7 +112,7 @@ class AskServiceTestCase(unittest.TestCase):
 
     def test_model_error_response_does_not_expose_exception_details(self):
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch("app.agents.ask_service.LLM", return_value=object()),
             patch(
                 "app.agents.dispatcher.classify_task",
                 side_effect=RuntimeError("secret-token-value"),
@@ -125,7 +125,7 @@ class AskServiceTestCase(unittest.TestCase):
         self.assertNotIn("secret-token-value", result["message"])
 
     def test_rejects_empty_and_oversized_tasks_before_model_call(self):
-        with patch("app.agents.ask_service.build_configured_llm") as build_llm:
+        with patch("app.agents.ask_service.LLM") as build_llm:
             empty, empty_status = AskService().ask("   ")
             long, long_status = AskService().ask("x" * 2001)
 
@@ -168,7 +168,7 @@ class AskServiceTestCase(unittest.TestCase):
             return response.success("成功", {"answer": "不应写入的回答", "sources": []})
 
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch("app.agents.ask_service.LLM", return_value=object()),
             patch("app.agents.ask_service.classify_task", return_value=route),
             patch(
                 "app.agents.ask_service.QuestionService.question",
@@ -305,7 +305,7 @@ class AskServiceTestCase(unittest.TestCase):
             200,
         )
         with (
-            patch("app.agents.dispatcher.build_configured_llm", return_value=model),
+            patch("app.agents.dispatcher.LLM", return_value=model),
             patch(
                 "app.agents.dispatcher.QuestionService.question",
                 return_value=rag_result,
@@ -336,7 +336,7 @@ class AskServiceTestCase(unittest.TestCase):
             )
 
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=llm),
+            patch("app.agents.ask_service.LLM", return_value=llm),
             patch(
                 "app.agents.ask_service.dispatch_request", side_effect=dispatched
             ) as dispatch,
@@ -391,7 +391,7 @@ class AskServiceTestCase(unittest.TestCase):
             }, 202
 
         with (
-            patch("app.agents.ask_service.build_configured_llm", return_value=object()),
+            patch("app.agents.ask_service.LLM", return_value=object()),
             patch("app.agents.dispatcher.classify_task", return_value=route),
             patch(
                 "app.agents.dispatcher.AgentTaskService.start", side_effect=start_agent

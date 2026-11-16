@@ -16,7 +16,7 @@ from app.agents.checkpoints import (
 from app.agents.graph import build_graph
 from app.agents.state import AgentRunBusy, AgentRunCancelled, InvalidAgentRequest
 from app.core import response
-from app.infrastructure.llm import LLMConfigurationError, build_configured_llm
+from app.infrastructure.llm import LLM, LLMConfigurationError
 
 
 def run_result(execution_id: str, state: dict) -> dict:
@@ -61,7 +61,7 @@ def run_created(
 ):
     try:
         with open_checkpointer() as checkpointer:
-            llm = llm or build_configured_llm()
+            llm = llm or LLM()
             graph = build_graph(
                 llm,
                 checkpointer,

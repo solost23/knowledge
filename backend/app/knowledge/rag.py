@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from loguru import logger
 
 from app.core import response
-from app.infrastructure.llm import LLMConfigurationError, build_configured_llm
+from app.infrastructure.llm import LLM, LLMConfigurationError
 from app.infrastructure.vector_store import chroma
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -41,9 +41,7 @@ class QuestionService:
                 f"[{index}] 来源：{doc.metadata.get('source', '')}\n{doc.page_content}"
                 for index, doc in enumerate(docs, 1)
             )
-            answer = (
-                PROMPT | (llm or build_configured_llm()) | StrOutputParser()
-            ).invoke(
+            answer = (PROMPT | (llm or LLM()) | StrOutputParser()).invoke(
                 {
                     "context": context,
                     "question": question,

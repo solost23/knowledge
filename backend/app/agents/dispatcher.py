@@ -9,7 +9,7 @@ from app.agents.state import (
     MAX_TASK_LENGTH,
 )
 from app.core import response
-from app.infrastructure.llm import build_configured_llm
+from app.infrastructure.llm import LLM
 from app.knowledge.rag import QuestionService
 
 ROUTER_PROMPT = """判断用户请求应该走普通 RAG 还是计划执行 Agent。
@@ -61,7 +61,7 @@ def dispatch_request(
     if len(task) > MAX_TASK_LENGTH:
         return response.error(400, f"任务内容不能超过 {MAX_TASK_LENGTH} 个字符")
 
-    model = llm or build_configured_llm()
+    model = llm or LLM()
     route = classify_task(model, task, history)
     resolved_task = route.resolved_task.strip() or task
     if route.mode == "agent":

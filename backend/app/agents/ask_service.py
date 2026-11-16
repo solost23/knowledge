@@ -23,7 +23,7 @@ from app.infrastructure.conversation_repository import (
     create_conversation,
     get_conversation,
 )
-from app.infrastructure.llm import LLMConfigurationError, build_configured_llm
+from app.infrastructure.llm import LLM, LLMConfigurationError
 from app.knowledge.rag import QuestionService
 
 _ASK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ask-run")
@@ -153,7 +153,7 @@ class AskService:
     def _run(self, execution_id: str, task: str, conversation_id: str):
         try:
             self._ensure_not_cancelled(execution_id)
-            model = build_configured_llm()
+            model = LLM()
             history = prepare_history(conversation_id, model)
             self._ensure_not_cancelled(execution_id)
             route = classify_task(model, task, history)
@@ -294,7 +294,7 @@ class AskService:
                 if conversation is None:
                     return response.error(404, "未找到该对话")
 
-            model = build_configured_llm()
+            model = LLM()
             history = prepare_history(conversation_id, model)
 
             def save_agent_result(agent_result):
