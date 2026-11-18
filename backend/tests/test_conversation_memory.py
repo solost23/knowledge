@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
@@ -73,6 +74,36 @@ class ConversationMemoryTestCase(unittest.TestCase):
 
         self.assertEqual(0, summarizer.calls)
         self.assertEqual(2, len(history))
+
+    def test_summary_uses_current_limit_and_preserves_input_data(self):
+        batch = {
+            "summary": '已确认：{"amount": 600}',
+            "messages": [{"role": "user", "content": "继续解释 {规则}"}],
+            "through_id": 7,
+        }
+        settings = SimpleNamespace(conversation={"max_summary_chars": 12})
+        with (
+            patch("app.agents.memory.config", settings),
+            patch("app.agents.memory.compression_batch", return_value=batch),
+            patch("app.agents.memory.recent_history", return_value=[]),
+            patch("app.agents.memory.save_summary") as save_summary,
+        ):
+            for limit in (12, 20):
+                with self.subTest(limit=limit):
+                    settings.conversation["max_summary_chars"] = limit
+                    with patch.object(
+                        FakeSummarizer,
+                        "invoke",
+                        return_value=AIMessage(content="摘" * 30),
+                    ) as invoke:
+                        prepare_history("conversation-id", FakeSummarizer())
+
+                    messages = invoke.call_args.args[0]
+                    self.assertEqual(["system", "human"], [m.type for m in messages])
+                    self.assertIn(f"{limit} 个中文字符以内", messages[0].content)
+                    self.assertIn(batch["summary"], messages[1].content)
+                    self.assertIn("用户：继续解释 {规则}", messages[1].content)
+                    save_summary.assert_called_with("conversation-id", "摘" * limit, 7)
 
     def test_history_is_isolated_and_bounded_per_conversation(self):
         first = create_conversation()

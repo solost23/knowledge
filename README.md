@@ -13,6 +13,7 @@
 │   │   ├── agents/             # 路由、LangGraph 工作流、只读工具、状态和 checkpoint
 │   │   ├── knowledge/          # RAG、文档摄取和格式解析
 │   │   ├── infrastructure/     # LLM、Chroma、embedding、SQLite 适配
+│   │   ├── prompts/            # 问答、路由、摘要和 Agent 提示词
 │   │   ├── core/               # 配置、服务启动和通用响应
 │   │   └── main.py             # API 进程入口
 │   ├── conf/                   # 后端配置
@@ -56,6 +57,8 @@ npm run dev
 浏览器打开 `http://127.0.0.1:5173`。Vite 会把 `/api` 请求转发给本机后端；后端 Swagger 地址是 `http://127.0.0.1:8086/openapi/swagger`。
 
 ## 配置
+
+提示词集中在 `backend/app/prompts/`，按 `rag.py`、`routing.py`、`memory.py` 和 `agent.py` 分别维护问答（含 RAG 评测）、请求分流、对话摘要和 Agent 规划执行模板。业务代码在调用时传入资料、历史、任务和摘要字数等动态参数。
 
 运行参数默认集中在 `backend/conf/config.yaml`。在仓库根目录或 `backend/` 下的 `.env` 可以用 `APP_CONFIG__区块__参数` 覆盖任意已有配置项；变量名不区分大小写，值按 YAML 标量解析。例如：
 

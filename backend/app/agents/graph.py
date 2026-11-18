@@ -1,14 +1,9 @@
 import json
 
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.prompts import (
-    EXECUTOR_SYSTEM_PROMPT,
-    FINALIZER_SYSTEM_PROMPT,
-    PLAN_SYSTEM_PROMPT,
-)
 from app.agents.state import (
     MAX_STEP_LENGTH,
     AgentState,
@@ -21,6 +16,12 @@ from app.agents.tools import (
     search_knowledge,
 )
 from app.core.settings import config
+from app.prompts.agent import (
+    EXECUTOR_SYSTEM_PROMPT,
+    EXECUTOR_TASK_PROMPT,
+    FINALIZER_PROMPT,
+    PLAN_PROMPT,
+)
 
 
 def compile_graph(
@@ -38,12 +39,7 @@ def compile_graph(
                         "current_action": "正在拆分执行计划",
                     }
                 )
-            result = planner.invoke(
-                [
-                    SystemMessage(content=PLAN_SYSTEM_PROMPT),
-                    HumanMessage(content=state["task"]),
-                ]
-            )
+            result = planner.invoke(PLAN_PROMPT.format_messages(task=state["task"]))
             steps = [step.strip() for step in result.steps if step.strip()]
         if not steps:
             raise ValueError("模型没有生成可执行步骤")
@@ -78,11 +74,12 @@ def compile_graph(
             )
             or "无"
         )
-        prompt = (
-            f"总目标：{state['task']}\n"
-            f"当前步骤：{index + 1}/{len(state['plan'])}：{state['plan'][index]}\n"
-            f"已完成步骤及结果：\n{prior_results}\n"
-            "请完成当前步骤，不要提前代替后续步骤作答。"
+        prompt = EXECUTOR_TASK_PROMPT.format(
+            task=state["task"],
+            step_number=index + 1,
+            total_steps=len(state["plan"]),
+            step_task=state["plan"][index],
+            prior_results=prior_results,
         )
         result = executor.invoke(
             {"messages": [HumanMessage(content=prompt)]},
@@ -148,12 +145,7 @@ def compile_graph(
             ensure_ascii=False,
         )
         result = finalizer.invoke(
-            [
-                SystemMessage(content=FINALIZER_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=f"原始目标：{state['task']}\n执行记录：\n{evidence}"
-                ),
-            ]
+            FINALIZER_PROMPT.format_messages(task=state["task"], evidence=evidence)
         )
         return {"answer": message_text(result.content)}
 

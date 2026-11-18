@@ -32,6 +32,7 @@ from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.infrastructure.embeddings import FastEmbeddings
+from app.prompts.rag import EVAL_RAG_PROMPT
 
 load_dotenv(os.path.join(ROOT, ".env"))
 
@@ -98,24 +99,13 @@ def build_llm():
     )
 
 
-PROMPT = """你是企业知识库助手。只依据下面的资料回答问题，不要编造。
-如果资料不足以回答，直接回复「知识库中没有相关信息」。
-
-资料：
-{context}
-
-问题：{question}
-
-要求：答案简洁，给出具体数字和结论；不需要重复问题。"""
-
-
 def answer_question(llm, question: str, docs):
     context = "\n\n".join(
         f"[{i}] 来源：{d.metadata.get('source', '')}\n{d.page_content}"
         for i, d in enumerate(docs, 1)
     )
     started = time.perf_counter()
-    resp = llm.invoke(PROMPT.format(context=context, question=question))
+    resp = llm.invoke(EVAL_RAG_PROMPT.format(context=context, question=question))
     elapsed = (time.perf_counter() - started) * 1000
     usage = getattr(resp, "usage_metadata", None) or {}
     return resp.content, elapsed, usage.get("total_tokens", 0)

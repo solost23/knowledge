@@ -38,7 +38,7 @@ build-backend = "setuptools.build_meta"
 package = true
 
 [tool.setuptools]
-packages = ["app", "app.agents", "app.api", "app.api.controllers", "app.core", "app.infrastructure", "app.knowledge", "app.knowledge.loaders", "evals"]
+packages = ["app", "app.agents", "app.api", "app.api.controllers", "app.core", "app.infrastructure", "app.knowledge", "app.knowledge.loaders", "app.prompts", "evals"]
 
 [tool.ruff]
 target-version = "py311"
