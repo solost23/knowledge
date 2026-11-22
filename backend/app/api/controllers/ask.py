@@ -12,10 +12,6 @@ from app.core import response
 tag = Tag(name="问答")
 
 
-class QuestionQuery(BaseModel):
-    question: str = Field(description="问题内容")
-
-
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -46,12 +42,6 @@ class AskController:
             if not task:
                 return response.error(400, "参数 task 不能为空")
             return AskService().start(task, body.conversation_id)
-
-        @self.app.get("/question", tags=[tag], summary="问答（自动路由兼容入口）")
-        def question(query: QuestionQuery):
-            if not query.question.strip():
-                return response.error(400, "参数 question 不能为空")
-            return AskService().start(query.question.strip())
 
         @self.app.post("/agent/resume", tags=[tag], summary="恢复失败的 Agent 任务")
         def resume_agent(body: AgentResumeRequest):

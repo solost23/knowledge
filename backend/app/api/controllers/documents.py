@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.core import response
 from app.knowledge.document_imports import DocumentImportService
 from app.knowledge.documents import DocumentService
-from app.knowledge.loaders.structured import (
+from app.knowledge.loaders.dispatcher import (
     SUPPORTED_EXTENSIONS,
     SUPPORTED_EXTENSIONS_TEXT,
 )

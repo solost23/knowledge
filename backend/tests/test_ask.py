@@ -137,7 +137,7 @@ class AskServiceTestCase(unittest.TestCase):
 
     def test_start_returns_a_pollable_run_before_routing_finishes(self):
         conversation_id = create_conversation()["id"]
-        with patch("app.agents.ask_service._ASK_EXECUTOR.submit") as submit:
+        with patch("app.agents.ask_service.submit_task") as submit:
             result, status = AskService().start("需要判断路由的问题", conversation_id)
             execution_id = result["data"]["execution_id"]
             progress, progress_status = AgentTaskService().get_status(execution_id)
@@ -150,6 +150,7 @@ class AskServiceTestCase(unittest.TestCase):
         self.assertTrue(progress["data"]["started_at"])
         self.assertEqual(conversation_id, progress["data"]["conversation_id"])
         submit.assert_called_once()
+        self.assertEqual("ask", submit.call_args.args[0])
 
     def test_rag_cancellation_is_recorded_after_current_model_call_returns(self):
         started = threading.Event()

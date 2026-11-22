@@ -1,4 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID, uuid4
 
 from loguru import logger
@@ -16,7 +15,6 @@ from app.agents.checkpoints import (
     update_run_progress,
 )
 from app.agents.execution import (
-    progress_callback,
     run_created,
     run_metadata,
     run_result,
@@ -29,9 +27,8 @@ from app.agents.state import (
     InvalidAgentRequest,
 )
 from app.core import response
+from app.infrastructure import submit_task
 from app.infrastructure.llm import LLM, LLMConfigurationError
-
-_AGENT_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-run")
 
 
 def _validate_execution_id(execution_id: str) -> str:
@@ -170,7 +167,8 @@ class AgentTaskService:
                 raise InvalidAgentRequest("Agent 执行计划不能为空")
             execution_id = str(uuid4())
             self._create_run(execution_id, task, plan)
-            _AGENT_EXECUTOR.submit(
+            submit_task(
+                "agent",
                 self._run_created,
                 execution_id,
                 task,
@@ -249,7 +247,7 @@ class AgentTaskService:
                 graph = build_graph(
                     llm,
                     checkpointer,
-                    progress_callback=progress_callback(checkpointer, execution_id),
+                    execution_id=execution_id,
                 )
                 with claim_execution(execution_id):
                     state = graph.invoke(None, config=run_config(execution_id))

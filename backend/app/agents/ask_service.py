@@ -1,5 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
-
 from loguru import logger
 
 from app.agents.checkpoints import (
@@ -18,6 +16,7 @@ from app.agents.memory import prepare_history
 from app.agents.service import AgentTaskService
 from app.agents.state import MAX_TASK_LENGTH, AgentRunCancelled
 from app.core import response
+from app.infrastructure import submit_task
 from app.infrastructure.conversation_repository import (
     append_exchange,
     create_conversation,
@@ -25,8 +24,6 @@ from app.infrastructure.conversation_repository import (
 )
 from app.infrastructure.llm import LLM, LLMConfigurationError
 from app.knowledge.rag import QuestionService
-
-_ASK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ask-run")
 
 
 class AskService:
@@ -50,7 +47,7 @@ class AskService:
             execution_id, run = AgentTaskService().create_routed_run(
                 task, conversation_id
             )
-            _ASK_EXECUTOR.submit(self._run, execution_id, task, conversation_id)
+            submit_task("ask", self._run, execution_id, task, conversation_id)
             body, _ = response.success(
                 "任务已启动",
                 {

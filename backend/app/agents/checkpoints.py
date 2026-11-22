@@ -6,7 +6,7 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.agents.state import AgentRunBusy
+from app.agents.state import AgentRunBusy, AgentRunCancelled
 from app.core.settings import DATA_DIR, config
 
 _ACTIVE_EXECUTIONS: set[str] = set()
@@ -292,7 +292,17 @@ def clear_run_cancel(execution_id: str):
         _CANCEL_REQUESTED.discard(execution_id)
 
 
-def update_run_progress(checkpointer, execution_id: str, progress: dict):
+def update_run_progress(
+    checkpointer,
+    execution_id: str | None,
+    progress: dict,
+    *,
+    check_cancel: bool = False,
+):
+    if checkpointer is None or execution_id is None:
+        return
+    if check_cancel and run_cancel_requested(checkpointer, execution_id):
+        raise AgentRunCancelled(execution_id)
     with checkpointer.cursor() as cursor:
         row = cursor.execute(
             "SELECT progress_json FROM agent_runs WHERE execution_id = ?",

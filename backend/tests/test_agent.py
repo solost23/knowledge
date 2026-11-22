@@ -102,24 +102,24 @@ class AgentGraphTestCase(unittest.TestCase):
     def test_plan_steps_execute_in_order_and_collect_sources(self):
         planner = FakePlanner()
         executor = FakeExecutor()
-        progress_updates = []
         graph = compile_graph(
             planner,
             executor,
             FakeFinalizer(),
-            progress_callback=progress_updates.append,
         )
 
-        result = graph.invoke(
-            {
-                "task": "比较新旧制度",
-                "plan": [],
-                "current_step": 0,
-                "steps": [],
-                "sources": [],
-                "answer": "",
-            }
-        )
+        with patch("app.agents.graph.update_run_progress") as update_progress:
+            result = graph.invoke(
+                {
+                    "task": "比较新旧制度",
+                    "plan": [],
+                    "current_step": 0,
+                    "steps": [],
+                    "sources": [],
+                    "answer": "",
+                }
+            )
+        progress_updates = [call.args[2] for call in update_progress.call_args_list]
 
         self.assertEqual("比较新旧制度", planner.request)
         self.assertEqual(["查找新制度", "查找旧制度并比较差异"], result["plan"])
@@ -197,13 +197,13 @@ class AgentGraphTestCase(unittest.TestCase):
     def test_agent_service_persists_failed_run_and_resumes_it(self):
         executor = FailOnceExecutor()
 
-        def build_graph(_llm, checkpointer, progress_callback=None):
+        def build_graph(_llm, checkpointer, execution_id=None):
             return compile_graph(
                 None,
                 executor,
                 FakeFinalizer(),
                 checkpointer,
-                progress_callback=progress_callback,
+                execution_id=execution_id,
             )
 
         with (
@@ -249,7 +249,7 @@ class AgentGraphTestCase(unittest.TestCase):
                 os.environ,
                 {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.sqlite")},
             ),
-            patch("app.agents.service._AGENT_EXECUTOR.submit") as submit,
+            patch("app.agents.service.submit_task") as submit,
         ):
             result, status = AgentTaskService().start(
                 "比较两份制度",
@@ -267,6 +267,7 @@ class AgentGraphTestCase(unittest.TestCase):
             "Agent 已接收任务，准备执行计划", progress["data"]["current_action"]
         )
         submit.assert_called_once()
+        self.assertEqual("agent", submit.call_args.args[0])
 
     def test_agent_status_reports_active_step_during_background_execution(self):
         started = threading.Event()
@@ -285,13 +286,13 @@ class AgentGraphTestCase(unittest.TestCase):
                     ]
                 }
 
-        def build_graph(_llm, checkpointer, progress_callback=None):
+        def build_graph(_llm, checkpointer, execution_id=None):
             return compile_graph(
                 None,
                 BlockingExecutor(),
                 FakeFinalizer(),
                 checkpointer,
-                progress_callback=progress_callback,
+                execution_id=execution_id,
             )
 
         with (
@@ -348,13 +349,13 @@ class AgentGraphTestCase(unittest.TestCase):
                     ]
                 }
 
-        def build_graph(_llm, checkpointer, progress_callback=None):
+        def build_graph(_llm, checkpointer, execution_id=None):
             return compile_graph(
                 None,
                 BlockingExecutor(),
                 FakeFinalizer(),
                 checkpointer,
-                progress_callback=progress_callback,
+                execution_id=execution_id,
             )
 
         with (

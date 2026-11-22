@@ -1,10 +1,10 @@
 import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 
 from loguru import logger
 from werkzeug.datastructures import FileStorage
 
+from app.infrastructure import submit_task
 from app.infrastructure.document_upload_repository import (
     create_upload_job,
     get_upload_job,
@@ -12,8 +12,6 @@ from app.infrastructure.document_upload_repository import (
     update_upload_job,
 )
 from app.knowledge.documents import DocumentService
-
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-import")
 
 
 class DocumentImportService:
@@ -28,7 +26,7 @@ class DocumentImportService:
             file.save(file_path)
             job = create_upload_job(job_id, filename)
             job_created = True
-            _executor.submit(self._process, job_id, filename, extension, file_path)
+            submit_task("document_import", self._process, job_id, filename, file_path)
             return job
         except Exception as error:
             if job_created:
@@ -48,33 +46,18 @@ class DocumentImportService:
     def get(self, job_id: str) -> dict | None:
         return get_upload_job(job_id)
 
-    def _process(
-        self, job_id: str, filename: str, extension: str, file_path: str
-    ) -> None:
-        progress = 1
+    def _process(self, job_id: str, filename: str, file_path: str) -> None:
         update_upload_job(
             job_id,
             status="processing",
-            progress=progress,
+            progress=1,
             stage="准备解析文档",
         )
-
-        def report(value: int, stage: str) -> None:
-            nonlocal progress
-            progress = max(progress, min(99, value))
-            update_upload_job(
-                job_id,
-                status="processing",
-                progress=progress,
-                stage=stage,
-            )
 
         try:
             result, status_code = DocumentService().doc(
                 file_path,
-                extension,
                 filename,
-                progress_callback=report,
                 upload_job_id=job_id,
             )
             if status_code != 200 or not result.get("success"):
@@ -94,7 +77,6 @@ class DocumentImportService:
             update_upload_job(
                 job_id,
                 status="failed",
-                progress=progress,
                 stage="导入失败",
                 error=str(error) or "文档导入失败",
             )

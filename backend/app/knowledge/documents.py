@@ -1,7 +1,6 @@
 import os
 import os.path
 import uuid
-from collections.abc import Callable
 
 from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -17,9 +16,9 @@ from app.infrastructure.document_repository import (
     insert_doc,
     list_docs,
 )
-from app.knowledge.loaders import doc, excel, markdown, pdf, ppt, structured
-
-ProgressCallback = Callable[[int, str], None]
+from app.infrastructure.document_upload_repository import update_upload_progress
+from app.knowledge.loaders import load_file
+from app.knowledge.loaders.dispatcher import UnsupportedFormatError
 
 
 class DocumentService:
@@ -32,7 +31,7 @@ class DocumentService:
 
         try:
             file.save(file_path)
-            return self.doc(file_path, ext, original_name)
+            return self.doc(file_path, original_name)
         except Exception as e:
             logger.error(f"上传处理失败: {e}")
             return response.error(500, f"文件处理失败: {str(e)}")
@@ -44,40 +43,19 @@ class DocumentService:
     def doc(
         self,
         file_path: str,
-        ext: str,
         original_name: str,
-        progress_callback: ProgressCallback | None = None,
         upload_job_id: str | None = None,
     ) -> str:
-        last_progress = -1
+        update_upload_progress(upload_job_id, 5, "正在提取文档文本")
+        try:
+            docs = load_file(file_path)
+        except UnsupportedFormatError as error:
+            return response.error(400, str(error))
 
-        def report(progress: int, stage: str) -> None:
-            nonlocal last_progress
-            progress = max(0, min(99, progress))
-            if progress_callback and progress > last_progress:
-                last_progress = progress
-                progress_callback(progress, stage)
-
-        report(5, "正在提取文档文本")
-        if ext == ".pdf":
-            docs = pdf.load(file_path)
-        elif ext == ".docx":
-            docs = doc.load(file_path)
-        elif ext == ".pptx":
-            docs = ppt.load(file_path)
-        elif ext == ".xlsx":
-            docs = excel.load(file_path)
-        elif ext == ".md":
-            docs = markdown.load(file_path)
-        elif ext in structured.LOADER_EXTENSIONS:
-            docs = structured.load(file_path, ext)
-        else:
-            return response.error(400, f"暂不支持{ext[1:]}类型文件")
-
-        report(15, "文档已提取，正在清洗数据")
+        update_upload_progress(upload_job_id, 15, "文档已提取，正在清洗数据")
         docs = filter_complex_metadata(docs)
 
-        report(32, "文档已解析，正在切分文本")
+        update_upload_progress(upload_job_id, 32, "文档已解析，正在切分文本")
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=config.documents["chunk_size"],
             chunk_overlap=config.documents["chunk_overlap"],
@@ -91,7 +69,7 @@ class DocumentService:
             if upload_job_id:
                 text.metadata["upload_job_id"] = upload_job_id
 
-        report(38, f"文本切分完成，共 {len(texts)} 个片段")
+        update_upload_progress(upload_job_id, 38, f"文本切分完成，共 {len(texts)} 个片段")
         chroma_config = config.chroma
         existing = exists_doc(original_name)
         store = get_chroma()
@@ -114,7 +92,8 @@ class DocumentService:
                     ids=batch_ids,
                 )
                 completed = start + len(batch)
-                report(
+                update_upload_progress(
+                    upload_job_id,
                     38 + int(57 * completed / len(texts)),
                     f"正在生成并写入向量（{completed}/{len(texts)} 个片段）",
                 )
@@ -132,7 +111,7 @@ class DocumentService:
                     logger.exception("向量写入失败后的回滚清理也失败")
             raise
 
-        report(98, "正在保存文档索引记录")
+        update_upload_progress(upload_job_id, 98, "正在保存文档索引记录")
 
         return response.success("成功", None)
 

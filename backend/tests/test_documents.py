@@ -21,7 +21,6 @@ class DocServiceTestCase(unittest.TestCase):
         ]
 
         for file_path in file_paths:
-            ext = os.path.splitext(file_path)[-1]
             original_name = os.path.basename(file_path)
             with (
                 patch(
@@ -32,7 +31,7 @@ class DocServiceTestCase(unittest.TestCase):
             ):
                 add_texts = get_chroma.return_value.db.add_texts
                 result, status_code = DocumentService().doc(
-                    file_path, ext, original_name
+                    file_path, original_name
                 )
             self.assertEqual(0, result.get("code"))
             add_texts.assert_called_once()
@@ -41,10 +40,10 @@ class DocServiceTestCase(unittest.TestCase):
         chunks = [
             Document(page_content=f"chunk {index}", metadata={}) for index in range(130)
         ]
-        progress = []
         with (
+            patch("app.knowledge.documents.update_upload_progress") as update_progress,
             patch(
-                "app.knowledge.documents.pdf.load",
+                "app.knowledge.documents.load_file",
                 return_value=[Document(page_content="text")],
             ),
             patch(
@@ -59,12 +58,11 @@ class DocServiceTestCase(unittest.TestCase):
             add_texts.side_effect = lambda texts, metadatas, ids: ids
             result, status_code = DocumentService().doc(
                 "large.pdf",
-                ".pdf",
                 "large.pdf",
-                progress_callback=lambda value, stage: progress.append((value, stage)),
                 upload_job_id="job-1",
             )
 
+        progress = [call.args[1:] for call in update_progress.call_args_list]
         self.assertEqual(200, status_code)
         self.assertTrue(result["success"])
         self.assertEqual(1, add_texts.call_count)
@@ -78,7 +76,7 @@ class DocServiceTestCase(unittest.TestCase):
         write_error = RuntimeError("Chroma upsert failed")
         with (
             patch(
-                "app.knowledge.documents.pdf.load",
+                "app.knowledge.documents.load_file",
                 return_value=[Document(page_content="text")],
             ),
             patch("app.knowledge.documents.get_chroma") as get_chroma,
@@ -87,7 +85,7 @@ class DocServiceTestCase(unittest.TestCase):
             get_chroma.return_value.db.add_texts.side_effect = write_error
             get_chroma.return_value.db.delete.side_effect = RuntimeError("cleanup failed")
             with self.assertRaisesRegex(RuntimeError, "Chroma upsert failed"):
-                DocumentService().doc("broken.pdf", ".pdf", "broken.pdf")
+                DocumentService().doc("broken.pdf", "broken.pdf")
 
     def test_list(self):
         with patch("app.knowledge.documents.list_docs", return_value=[]):

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.knowledge.loaders.structured import load
+from app.knowledge.loaders import load_file
 
 
 class StructuredLoaderTestCase(unittest.TestCase):
@@ -11,10 +11,10 @@ class StructuredLoaderTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / f"sample{suffix}"
             path.write_text(content, encoding="utf-8")
-            return load(str(path), suffix)[0].page_content
+            return load_file(path)[0].page_content
 
     def test_text_and_code_files_are_read_as_text(self):
-        content = self._load_content(".py", "def answer():\n    return 'ok'\n")
+        content = self._load_content(".PY", "def answer():\n    return 'ok'\n")
         self.assertIn("def answer", content)
         self.assertIn("return 'ok'", content)
 

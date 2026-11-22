@@ -43,7 +43,7 @@ def update_upload_job(
     job_id: str,
     *,
     status: str,
-    progress: int,
+    progress: int | None = None,
     stage: str,
     error: str | None = None,
 ) -> None:
@@ -52,9 +52,27 @@ def update_upload_job(
         with connection:
             connection.execute(
                 "UPDATE document_upload_jobs "
-                "SET status = ?, progress = ?, stage = ?, error = ?, "
+                "SET status = ?, progress = COALESCE(?, progress), stage = ?, error = ?, "
                 "updated_at = datetime('now', 'localtime') WHERE id = ?",
                 (status, progress, stage, error, job_id),
+            )
+    finally:
+        connection.close()
+
+
+def update_upload_progress(job_id: str | None, progress: int, stage: str) -> None:
+    if job_id is None:
+        return
+    progress = max(0, min(99, progress))
+    connection = _connect()
+    try:
+        with connection:
+            connection.execute(
+                "UPDATE document_upload_jobs "
+                "SET status = 'processing', progress = ?, stage = ?, "
+                "updated_at = datetime('now', 'localtime') "
+                "WHERE id = ? AND status IN ('queued', 'processing') AND progress < ?",
+                (progress, stage, job_id, progress),
             )
     finally:
         connection.close()

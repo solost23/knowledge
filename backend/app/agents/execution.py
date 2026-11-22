@@ -7,7 +7,6 @@ from app.agents.checkpoints import (
     finish_run,
     get_run,
     open_checkpointer,
-    run_cancel_requested,
     run_config,
     save_run_result,
     set_run_status,
@@ -43,15 +42,6 @@ def run_metadata(run: dict) -> dict:
     }
 
 
-def progress_callback(checkpointer, execution_id: str):
-    def update(progress):
-        if run_cancel_requested(checkpointer, execution_id):
-            raise AgentRunCancelled(execution_id)
-        update_run_progress(checkpointer, execution_id, progress)
-
-    return update
-
-
 def run_created(
     execution_id: str,
     task: str,
@@ -65,7 +55,7 @@ def run_created(
             graph = build_graph(
                 llm,
                 checkpointer,
-                progress_callback=progress_callback(checkpointer, execution_id),
+                execution_id=execution_id,
             )
             with claim_execution(execution_id):
                 recursion_limit = run_config(execution_id)["recursion_limit"]

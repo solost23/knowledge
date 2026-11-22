@@ -1,9 +1,4 @@
-"""Load plain-text and structured files into LangChain documents.
-
-These formats intentionally use only the Python standard library. Keeping the
-loader dependency-free makes them available in the API and in local imports
-without adding another document-processing runtime.
-"""
+"""Parse plain-text and structured files into LangChain documents."""
 
 # import csv
 # import io
@@ -59,25 +54,6 @@ TEXT_EXTENSIONS = frozenset(
     }
 )
 
-STRUCTURED_EXTENSIONS = frozenset({".csv", ".tsv", ".json", ".html", ".htm", ".xml"})
-
-# The order is used by API error messages and kept stable for the UI contract.
-SUPPORTED_EXTENSION_LIST = (
-    ".pdf",
-    ".docx",
-    ".pptx",
-    ".xlsx",
-    ".md",
-    *sorted(TEXT_EXTENSIONS),
-    *sorted(STRUCTURED_EXTENSIONS),
-)
-LOADER_EXTENSIONS = TEXT_EXTENSIONS | STRUCTURED_EXTENSIONS
-SUPPORTED_EXTENSIONS = frozenset(SUPPORTED_EXTENSION_LIST)
-SUPPORTED_EXTENSIONS_TEXT = "、".join(
-    ext[1:].upper() for ext in SUPPORTED_EXTENSION_LIST
-)
-
-
 # def _read_text(file_path: str) -> str:
 #     """Read common local encodings while keeping malformed text searchable."""
 
@@ -94,7 +70,7 @@ SUPPORTED_EXTENSIONS_TEXT = "、".join(
 #     return [Document(page_content=content, metadata={"source": file_path})]
 
 
-def _load_plain_text(file_path: str) -> list[Document]:
+def load_plain_text(file_path: str) -> list[Document]:
     loader = TextLoader(file_path=file_path, encoding="utf-8", autodetect_encoding=True)
     return loader.load()
 
@@ -106,7 +82,7 @@ def _load_plain_text(file_path: str) -> list[Document]:
 #     return _document("\n".join(lines), file_path)
 
 
-def _load_csv(file_path: str) -> list[Document]:
+def load_csv(file_path: str) -> list[Document]:
     loader = UnstructuredCSVLoader(
         file_path=file_path,
         mode="elements",
@@ -114,7 +90,7 @@ def _load_csv(file_path: str) -> list[Document]:
     return loader.load()
 
 
-def _load_tsv(file_path: str) -> list[Document]:
+def load_tsv(file_path: str) -> list[Document]:
     loader = UnstructuredTSVLoader(
         file_path=file_path,
         mode="elements",
@@ -128,7 +104,7 @@ def _load_tsv(file_path: str) -> list[Document]:
 #     return _document(content, file_path)
 
 
-def _load_json(file_path: str) -> list[Document]:
+def load_json(file_path: str) -> list[Document]:
     loader = JSONLoader(
         file_path=file_path,
         jq_schema="tojson",
@@ -216,7 +192,7 @@ def _load_json(file_path: str) -> list[Document]:
 #     return _document(parser.text(), file_path)
 
 
-def _load_html(file_path: str) -> list[Document]:
+def load_html(file_path: str) -> list[Document]:
     loader = UnstructuredHTMLLoader(
         file_path=file_path,
         mode="single",
@@ -248,7 +224,7 @@ def _load_html(file_path: str) -> list[Document]:
 #     return _document("\n".join(_xml_lines(root)), file_path)
 
 
-def _load_xml(file_path: str) -> list[Document]:
+def load_xml(file_path: str) -> list[Document]:
     loader = UnstructuredXMLLoader(
         file_path=file_path,
         mode="elements",
@@ -257,25 +233,3 @@ def _load_xml(file_path: str) -> list[Document]:
         chunking_strategy=None,
     )
     return loader.load()
-
-
-def load(file_path: str, extension: str) -> list[Document]:
-    """Load a supported plain-text or structured extension."""
-
-    extension = extension.lower()
-    if extension in TEXT_EXTENSIONS:
-        # return _document(_read_text(file_path), file_path)
-        return _load_plain_text(file_path=file_path)
-    if extension == ".csv":
-        # return _load_delimited(file_path, ",")
-        return _load_csv(file_path=file_path)
-    if extension == ".tsv":
-        # return _load_delimited(file_path, "\t")
-        return _load_tsv(file_path=file_path)
-    if extension == ".json":
-        return _load_json(file_path=file_path)
-    if extension in {".html", ".htm"}:
-        return _load_html(file_path=file_path)
-    if extension == ".xml":
-        return _load_xml(file_path=file_path)
-    raise ValueError(f"Unsupported structured extension: {extension}")
