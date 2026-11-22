@@ -78,7 +78,8 @@ class AgentGraphTestCase(unittest.TestCase):
         docs = [
             Document(page_content="报销额度为600元", metadata={"source": "报销制度.md"})
         ]
-        with patch("app.agents.tools.chroma.search", return_value=[(docs[0], 0.86)]):
+        with patch("app.agents.tools.get_chroma") as get_chroma:
+            get_chroma.return_value.search.return_value = [(docs[0], 0.86)]
             result = json.loads(
                 search_knowledge.invoke(
                     {

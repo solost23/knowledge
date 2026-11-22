@@ -25,12 +25,12 @@ class DocServiceTestCase(unittest.TestCase):
             original_name = os.path.basename(file_path)
             with (
                 patch(
-                    "app.knowledge.documents.chroma.db.add_texts",
-                    return_value=["chunk-id"],
-                ) as add_texts,
+                    "app.knowledge.documents.get_chroma"
+                ) as get_chroma,
                 patch("app.knowledge.documents.exists_doc", return_value=False),
                 patch("app.knowledge.documents.insert_doc"),
             ):
+                add_texts = get_chroma.return_value.db.add_texts
                 result, status_code = DocumentService().doc(
                     file_path, ext, original_name
                 )
@@ -51,13 +51,12 @@ class DocServiceTestCase(unittest.TestCase):
                 "app.knowledge.documents.RecursiveCharacterTextSplitter.split_documents",
                 return_value=chunks,
             ),
-            patch(
-                "app.knowledge.documents.chroma.db.add_texts",
-                side_effect=lambda texts, metadatas, ids: ids,
-            ) as add_texts,
+            patch("app.knowledge.documents.get_chroma") as get_chroma,
             patch("app.knowledge.documents.exists_doc", return_value=False),
             patch("app.knowledge.documents.insert_doc"),
         ):
+            add_texts = get_chroma.return_value.db.add_texts
+            add_texts.side_effect = lambda texts, metadatas, ids: ids
             result, status_code = DocumentService().doc(
                 "large.pdf",
                 ".pdf",
@@ -82,15 +81,11 @@ class DocServiceTestCase(unittest.TestCase):
                 "app.knowledge.documents.pdf.load",
                 return_value=[Document(page_content="text")],
             ),
-            patch(
-                "app.knowledge.documents.chroma.db.add_texts", side_effect=write_error
-            ),
-            patch(
-                "app.knowledge.documents.chroma.db.delete",
-                side_effect=RuntimeError("cleanup failed"),
-            ),
+            patch("app.knowledge.documents.get_chroma") as get_chroma,
             patch("app.knowledge.documents.exists_doc", return_value=False),
         ):
+            get_chroma.return_value.db.add_texts.side_effect = write_error
+            get_chroma.return_value.db.delete.side_effect = RuntimeError("cleanup failed")
             with self.assertRaisesRegex(RuntimeError, "Chroma upsert failed"):
                 DocumentService().doc("broken.pdf", ".pdf", "broken.pdf")
 
@@ -102,9 +97,10 @@ class DocServiceTestCase(unittest.TestCase):
 
     def test_delete_not_found(self):
         with (
-            patch("app.knowledge.documents.chroma.db.get", return_value={"ids": []}),
+            patch("app.knowledge.documents.get_chroma") as get_chroma,
             patch("app.knowledge.documents.delete_doc", return_value=False),
         ):
+            get_chroma.return_value.db.get.return_value = {"ids": []}
             result, status_code = DocumentService().delete("不存在的文件.md")
         self.assertEqual(404, result.get("code"))
 

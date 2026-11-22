@@ -1,9 +1,10 @@
+from functools import lru_cache
 from pathlib import Path
 
 from langchain_chroma import Chroma
 
 from app.core.settings import BACKEND_DIR, config
-from app.infrastructure.embeddings import embedding
+from app.infrastructure.embeddings import FastEmbeddings
 
 
 class ChromaDB:
@@ -18,7 +19,7 @@ class ChromaDB:
         self.relevance_threshold = float(chroma_config.get("relevance_threshold", 0.35))
         self.db = Chroma(
             collection_name="knowledge",
-            embedding_function=embedding(),
+            embedding_function=FastEmbeddings(),
             persist_directory=str(persist_directory),
         )
 
@@ -31,4 +32,6 @@ class ChromaDB:
         )
 
 
-chroma = ChromaDB()
+@lru_cache(maxsize=1)
+def get_chroma() -> ChromaDB:
+    return ChromaDB()

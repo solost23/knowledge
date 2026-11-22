@@ -5,23 +5,31 @@ from langchain_core.embeddings import Embeddings
 
 from app.core.settings import BACKEND_DIR, config
 
-_embedding = None
-
 
 class FastEmbeddings(Embeddings):
     """fastembed（ONNX Runtime）适配层，无需 torch / sentence-transformers。"""
 
     def __init__(
         self,
-        model_name: str,
+        model_name: str | None = None,
         cache_dir: str | None = None,
         threads: int | None = None,
-        batch_size: int = 256,
+        batch_size: int | None = None,
     ):
+        settings = config.embedding
+        if cache_dir is None:
+            cache_path = Path(settings.get("cache_path", "./data/huggingface"))
+            if not cache_path.is_absolute():
+                cache_path = BACKEND_DIR / cache_path
+            cache_dir = str(cache_path)
         self.model = TextEmbedding(
-            model_name=model_name, cache_dir=cache_dir, threads=threads
+            model_name=model_name or settings.get("model_name", "BAAI/bge-small-zh-v1.5"),
+            cache_dir=cache_dir,
+            threads=threads if threads is not None else settings.get("threads"),
         )
-        self.batch_size = batch_size
+        self.batch_size = (
+            batch_size if batch_size is not None else int(settings.get("batch_size", 256))
+        )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [
@@ -31,18 +39,3 @@ class FastEmbeddings(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         return next(self.model.query_embed(text)).tolist()
-
-
-def embedding() -> FastEmbeddings:
-    global _embedding
-    if _embedding is None:
-        cache_dir = Path(config.embedding.get("cache_path", "./data/huggingface"))
-        if not cache_dir.is_absolute():
-            cache_dir = BACKEND_DIR / cache_dir
-        _embedding = FastEmbeddings(
-            model_name=config.embedding.get("model_name", "BAAI/bge-small-zh-v1.5"),
-            cache_dir=str(cache_dir),
-            threads=config.embedding.get("threads"),
-            batch_size=int(config.embedding.get("batch_size", 256)),
-        )
-    return _embedding

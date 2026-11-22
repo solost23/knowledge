@@ -10,13 +10,13 @@ from werkzeug.datastructures.file_storage import FileStorage
 
 from app.core import response
 from app.core.settings import config
+from app.infrastructure import get_chroma
 from app.infrastructure.document_repository import (
     delete_doc,
     exists_doc,
     insert_doc,
     list_docs,
 )
-from app.infrastructure.vector_store import chroma
 from app.knowledge.loaders import doc, excel, markdown, pdf, ppt, structured
 
 ProgressCallback = Callable[[int, str], None]
@@ -94,8 +94,9 @@ class DocumentService:
         report(38, f"文本切分完成，共 {len(texts)} 个片段")
         chroma_config = config.chroma
         existing = exists_doc(original_name)
+        store = get_chroma()
         old_ids = (
-            chroma.db.get(where={"source": original_name}).get("ids", [])
+            store.db.get(where={"source": original_name}).get("ids", [])
             if existing
             else []
         )
@@ -107,7 +108,7 @@ class DocumentService:
                 batch = texts[start : start + batch_size]
                 batch_ids = [str(uuid.uuid4()) for _ in batch]
                 added_ids.extend(batch_ids)
-                chroma.db.add_texts(
+                store.db.add_texts(
                     texts=[item.page_content for item in batch],
                     metadatas=[item.metadata for item in batch],
                     ids=batch_ids,
@@ -119,14 +120,14 @@ class DocumentService:
                 )
 
             if old_ids:
-                chroma.db.delete(ids=old_ids)
+                store.db.delete(ids=old_ids)
             if existing:
                 delete_doc(original_name)
             insert_doc(original_name)
         except Exception:
             if added_ids:
                 try:
-                    chroma.db.delete(ids=added_ids)
+                    store.db.delete(ids=added_ids)
                 except Exception:
                     logger.exception("向量写入失败后的回滚清理也失败")
             raise
@@ -136,10 +137,11 @@ class DocumentService:
         return response.success("成功", None)
 
     def discard_upload_job(self, upload_job_id: str, original_name: str) -> None:
-        ids = chroma.db.get(where={"upload_job_id": upload_job_id}).get("ids", [])
+        store = get_chroma()
+        ids = store.db.get(where={"upload_job_id": upload_job_id}).get("ids", [])
         if ids:
-            chroma.db.delete(ids=ids)
-        remaining = chroma.db.get(where={"source": original_name}).get("ids", [])
+            store.db.delete(ids=ids)
+        remaining = store.db.get(where={"source": original_name}).get("ids", [])
         if not remaining:
             delete_doc(original_name)
 
@@ -147,10 +149,11 @@ class DocumentService:
         return response.success("成功", list_docs())
 
     def delete(self, name: str) -> str:
-        results = chroma.db.get(where={"source": name})
+        store = get_chroma()
+        results = store.db.get(where={"source": name})
         ids = results.get("ids", [])
         if ids:
-            chroma.db.delete(ids=ids)
+            store.db.delete(ids=ids)
 
         if not delete_doc(name):
             return response.error(404, f"笔记 {name} 不存在")

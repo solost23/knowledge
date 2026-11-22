@@ -2,8 +2,8 @@ from langchain_core.output_parsers import StrOutputParser
 from loguru import logger
 
 from app.core import response
+from app.infrastructure import get_chroma
 from app.infrastructure.llm import LLM, LLMConfigurationError
-from app.infrastructure.vector_store import chroma
 from app.prompts.rag import RAG_PROMPT
 
 
@@ -15,7 +15,7 @@ class QuestionService:
         llm=None,
     ) -> str:
         try:
-            docs = [doc for doc, _score in chroma.search(question)]
+            docs = [doc for doc, _score in get_chroma().search(question)]
             if not docs:
                 logger.info("知识库没有找到相关资料，跳过问答模型调用")
                 return response.success(

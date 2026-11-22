@@ -22,10 +22,8 @@ class QuestionServiceTestCase(unittest.TestCase):
             messages.extend(prompt.to_messages())
             return AIMessage(content="基于资料的回答")
 
-        with patch(
-            "app.knowledge.rag.chroma.search",
-            return_value=[(docs[0], 0.86)],
-        ):
+        with patch("app.knowledge.rag.get_chroma") as get_chroma:
+            get_chroma.return_value.search.return_value = [(docs[0], 0.86)]
             result, status_code = QuestionService().question(
                 "报销额度是多少？",
                 history=[
@@ -54,9 +52,10 @@ class QuestionServiceTestCase(unittest.TestCase):
 
     def test_question_skips_model_when_no_relevant_documents(self):
         with (
-            patch("app.knowledge.rag.chroma.search", return_value=[]),
+            patch("app.knowledge.rag.get_chroma") as get_chroma,
             patch("app.knowledge.rag.LLM") as model,
         ):
+            get_chroma.return_value.search.return_value = []
             result, status_code = QuestionService().question("今天适合出门吗？")
 
         self.assertEqual(200, status_code)

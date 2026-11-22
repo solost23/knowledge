@@ -9,15 +9,15 @@ from app.agents.state import (
     MAX_SOURCE_LENGTH,
     SearchKnowledgeInput,
 )
+from app.infrastructure import get_chroma
 from app.infrastructure.document_repository import list_docs
-from app.infrastructure.vector_store import chroma
 
 
 @tool(args_schema=SearchKnowledgeInput)
 def search_knowledge(query: str, top_k: int = MAX_SEARCH_RESULTS) -> str:
     """按语义搜索知识库，返回匹配片段及来源文件名。"""
     args = SearchKnowledgeInput(query=query, top_k=top_k)
-    docs = [doc for doc, _score in chroma.search(args.query, k=args.top_k)]
+    docs = [doc for doc, _score in get_chroma().search(args.query, k=args.top_k)]
     results = [
         {
             "source": doc.metadata.get("source", ""),
