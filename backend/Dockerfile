@@ -9,7 +9,9 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app/backend
 
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
-RUN uv sync --locked --no-dev --no-install-project
+# Keep downloaded wheels across dependency-layer rebuilds without adding them to the image.
+RUN --mount=type=cache,id=knowledge-uv,target=/root/.cache/uv \
+    uv sync --locked --no-dev --no-install-project
 
 COPY backend ./
 

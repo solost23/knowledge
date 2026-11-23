@@ -18,6 +18,10 @@ chat_gpt:
   # api_key 从环境变量 OPENAI_API_KEY 读取（可写在 .env）
   base_url: "https://724ai.org/v1"
   model: "claude-sonnet-5"
+  # 首选模型无可用渠道时自动切换；最多尝试 3 个备用模型
+  auto_fallback: true
+  # 非空时只使用此列表；为空时从当前服务的 /models 发现聊天模型
+  fallback_models: []
   max_token: 4096
   temperature: 0
   timeout: 60

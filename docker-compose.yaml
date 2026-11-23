@@ -6,6 +6,9 @@ services:
     image: knowledge-api:local
     restart: unless-stopped
     init: true
+    env_file:
+      - path: .env
+        required: false
     environment:
       APP_HOST: 0.0.0.0
       APP_MODE: release

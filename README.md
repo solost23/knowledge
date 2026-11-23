@@ -69,6 +69,10 @@ APP_CONFIG__DOCUMENTS__CHUNK_SIZE=700
 APP_CONFIG__AGENT__MAX_TASK_LENGTH=3000
 ```
 
+默认开启 `chat_gpt.auto_fallback`：普通/结构化的同步和异步非流式调用遇到模型不存在、无可用渠道或明确不支持工具调用时，最多尝试 3 个备用模型。密钥、额度、限流以及普通服务错误不会触发模型切换。设置 `chat_gpt.fallback_models` 可指定有序备用名单；列表为空时才从同一服务、同一密钥的 `/models` 列表按名称筛选聊天模型并按返回顺序尝试。名称筛选不是能力保证，实际调用仍可能失败；备用模型的质量和费用也可能不同。成功模型会在当前 LLM 实例的后续调用中复用。此机制不覆盖流式调用。
+
+Compose 也支持 `.env` 中的 `APP_CONFIG__CHAT_GPT__BASE_URL`、`APP_CONFIG__CHAT_GPT__MODEL`、`APP_CONFIG__CHAT_GPT__AUTO_FALLBACK` 和 `APP_CONFIG__CHAT_GPT__FALLBACK_MODELS`。修改 `.env` 后执行 `docker compose up -d --force-recreate api`；修改代码或 YAML 后执行 `docker compose up -d --build api`。
+
 `APP_HOST`、`APP_PORT`、`APP_MODE`、`APP_DATA_DIR` 和 `APP_CONFIG_FILE` 是服务级环境变量。Compose 部署的上传限制通过 `UPLOAD_MAX_SIZE_MB` 同时设置 API 和 Nginx；本地开发通过 `APP_CONFIG__UPLOAD__MAX_SIZE_MB` 调整 API 限制。
 
 ## 功能和 API
@@ -129,6 +133,16 @@ npm run build
 ```shell
 docker compose up --build -d
 ```
+
+后端构建使用 BuildKit 的 uv 下载缓存。只改业务源码时会复用整个依赖层；修改 `pyproject.toml` 或 `uv.lock` 后，依赖层需要重建，但仍能复用当前 builder 已下载的包。首次构建、换 builder 或清理构建缓存后仍需要下载。不要为了日常更新使用 `--no-cache` 或清理 builder 缓存。需要检查具体耗时阶段时运行：
+
+```shell
+docker compose --progress=plain build api
+```
+
+日志中的 `Downloading` / `Prepared` 主要对应下载和解包，`Installed` 对应安装，`Bytecode compiled` 对应字节码编译；依赖层显示 `CACHED` 时不会重新安装。当前 `unstructured[pdf]` 会引入 PyTorch，Linux x86_64 构建还会拉取 CUDA 依赖，首次下载量较大；项目的 embedding 使用 ONNX。若要进一步缩小依赖，可以另行评估 PyTorch CPU 源或调整 PDF 解析依赖，并验证文档解析功能。
+
+若首次下载受网络影响，可配置构建代理，或在 `backend/pyproject.toml` 中配置可访问的 `[[tool.uv.index]]`（设置 `default = true`），再执行 `uv lock --project backend` 更新锁文件并重新构建。`uv.lock` 记录了包来源和下载 URL，仅设置 `PIP_INDEX_URL` 不会让 `uv sync --locked` 中已锁定的 PyPI 地址改走镜像。
 
 网页只绑定到 `127.0.0.1:8080`；API 只在 Compose 内网提供服务。文档、会话和 Agent 状态持久化到 `backend/data/`。查看状态和日志：
 
