@@ -23,12 +23,15 @@ class FastEmbeddings(Embeddings):
                 cache_path = BACKEND_DIR / cache_path
             cache_dir = str(cache_path)
         self.model = TextEmbedding(
-            model_name=model_name or settings.get("model_name", "BAAI/bge-small-zh-v1.5"),
+            model_name=model_name
+            or settings.get("model_name", "BAAI/bge-small-zh-v1.5"),
             cache_dir=cache_dir,
             threads=threads if threads is not None else settings.get("threads"),
         )
         self.batch_size = (
-            batch_size if batch_size is not None else int(settings.get("batch_size", 256))
+            batch_size
+            if batch_size is not None
+            else int(settings.get("batch_size", 256))
         )
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

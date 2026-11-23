@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from flask_openapi3 import Info, OpenAPI
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -9,7 +11,7 @@ MAX_REQUEST_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 class Server:
-    def __init__(self, register):
+    def __init__(self, register: Callable[[OpenAPI], None]):
         info = Info(title="Knowledge API", version="1.0.0")
         self.app = OpenAPI(config.name, info=info)
         self.app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES

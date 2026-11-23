@@ -10,6 +10,7 @@
 ├── backend/
 │   ├── app/
 │   │   ├── api/                # HTTP 路由和请求/响应适配
+│   │   ├── application/        # 可复用的业务用例编排
 │   │   ├── agents/             # 路由、LangGraph 工作流、只读工具、状态和 checkpoint
 │   │   ├── knowledge/          # RAG、文档摄取和格式解析
 │   │   ├── infrastructure/     # LLM、Chroma、embedding、SQLite 适配
@@ -26,6 +27,12 @@
 ├── docker-compose.yaml         # 前端 Nginx + 后端 API
 └── .env.example                # 模型密钥示例
 ```
+
+后端按四层边界组织：`api/` 只负责 HTTP 参数和响应格式，`application/` 编排跨领域用例，`knowledge/` 与 `agents/` 承载业务能力，`infrastructure/` 只提供数据库、模型、向量库和线程池适配。新增接口时先放到对应业务服务，再由控制器做薄适配，避免控制器直接调用 repository 或拼装后台任务细节。
+
+`POST /ask` 的异步链路按阶段拆分：`api/controllers/ask.py` 解析 HTTP 输入；`agents/ask_service.py` 校验任务、解析/创建会话、创建执行记录并提交后台任务；`agents/ask_execution.py` 准备历史和路由上下文，并选择 RAG/Agent 执行分支；`agents/ask_run_lifecycle.py` 统一管理 checkpoint 状态变化、取消/失败收尾和对话结果落库；`agents/service.py` 负责 Agent 图工作流。接口先返回可轮询的执行 ID，客户端通过 Agent runs 状态接口读取进度。同步兼容入口 `AskService.ask()` 保留给内部调用，不属于 HTTP `/ask` 的主路径。
+
+前端的请求代码按职责拆分在 `frontend/src/api/http.ts`（传输与错误处理）和 `frontend/src/api/resources.ts`（资源方法）中，`api/client.ts` 只作为稳定的导出入口，组件无需感知请求实现细节。
 
 ## 本地开发
 

@@ -7,7 +7,9 @@ from app.agents.service import AgentTaskService
 from app.agents.state import (
     MAX_STEP_LENGTH,
     MAX_TASK_LENGTH,
+    InvalidAgentRequest,
 )
+from app.agents.validation import validate_task
 from app.core import response
 from app.infrastructure.llm import LLM
 from app.knowledge.rag import QuestionService
@@ -49,11 +51,10 @@ def dispatch_request(
     on_agent_complete=None,
 ):
     """Classify an incoming request and invoke the matching application service."""
-    task = task.strip() if isinstance(task, str) else ""
-    if not task:
-        return response.error(400, "任务内容不能为空")
-    if len(task) > MAX_TASK_LENGTH:
-        return response.error(400, f"任务内容不能超过 {MAX_TASK_LENGTH} 个字符")
+    try:
+        task = validate_task(task)
+    except InvalidAgentRequest as error:
+        return response.error(400, str(error))
 
     model = llm or LLM()
     route = classify_task(model, task, history)

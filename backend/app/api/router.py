@@ -5,7 +5,7 @@ from app.api.controllers.conversations import ConversationController
 from app.api.controllers.documents import DocumentController
 
 
-def register(app: OpenAPI):
+def register(app: OpenAPI) -> None:
     DocumentController(app).register()
     AskController(app).register()
     ConversationController(app).register()

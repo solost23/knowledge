@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agents.ask_service import AskService
 from app.agents.service import AgentTaskService
 from app.agents.state import MAX_TASK_LENGTH
-from app.core import response
 
 tag = Tag(name="问答")
 
@@ -32,26 +31,30 @@ class AgentRunPath(BaseModel):
 
 
 class AskController:
-    def __init__(self, app: Flask):
+    def __init__(
+        self,
+        app: Flask,
+        ask_service: AskService | None = None,
+        agent_service: AgentTaskService | None = None,
+    ):
         self.app = app
+        self.ask_service = ask_service or AskService()
+        self.agent_service = agent_service or AgentTaskService()
 
     def register(self):
         @self.app.post("/ask", tags=[tag], summary="自动路由问答与任务")
         def ask(body: AskRequest):
-            task = body.task.strip()
-            if not task:
-                return response.error(400, "参数 task 不能为空")
-            return AskService().start(task, body.conversation_id)
+            return self.ask_service.start(body.task, body.conversation_id)
 
         @self.app.post("/agent/resume", tags=[tag], summary="恢复失败的 Agent 任务")
         def resume_agent(body: AgentResumeRequest):
-            return AgentTaskService().resume(body.execution_id)
+            return self.agent_service.resume(body.execution_id)
 
         @self.app.get(
             "/agent/runs/<execution_id>", tags=[tag], summary="查询 Agent 执行状态"
         )
         def agent_status(path: AgentRunPath):
-            return AgentTaskService().get_status(path.execution_id)
+            return self.agent_service.get_status(path.execution_id)
 
         @self.app.post(
             "/agent/runs/<execution_id>/cancel",
@@ -59,4 +62,4 @@ class AskController:
             summary="停止问答或 Agent 执行",
         )
         def cancel_agent(path: AgentRunPath):
-            return AgentTaskService().cancel(path.execution_id)
+            return self.agent_service.cancel(path.execution_id)

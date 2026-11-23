@@ -23,16 +23,12 @@ class DocServiceTestCase(unittest.TestCase):
         for file_path in file_paths:
             original_name = os.path.basename(file_path)
             with (
-                patch(
-                    "app.knowledge.documents.get_chroma"
-                ) as get_chroma,
+                patch("app.knowledge.documents.get_chroma") as get_chroma,
                 patch("app.knowledge.documents.exists_doc", return_value=False),
                 patch("app.knowledge.documents.insert_doc"),
             ):
                 add_texts = get_chroma.return_value.db.add_texts
-                result, status_code = DocumentService().doc(
-                    file_path, original_name
-                )
+                result, status_code = DocumentService().doc(file_path, original_name)
             self.assertEqual(0, result.get("code"))
             add_texts.assert_called_once()
 
@@ -83,7 +79,9 @@ class DocServiceTestCase(unittest.TestCase):
             patch("app.knowledge.documents.exists_doc", return_value=False),
         ):
             get_chroma.return_value.db.add_texts.side_effect = write_error
-            get_chroma.return_value.db.delete.side_effect = RuntimeError("cleanup failed")
+            get_chroma.return_value.db.delete.side_effect = RuntimeError(
+                "cleanup failed"
+            )
             with self.assertRaisesRegex(RuntimeError, "Chroma upsert failed"):
                 DocumentService().doc("broken.pdf", "broken.pdf")
 

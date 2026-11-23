@@ -25,14 +25,18 @@ class UploadTaskPath(BaseModel):
     task_id: str = Field(description="文档导入任务 ID")
 
 
-class UploadForm(BaseModel):
-    file: object = Field(description=f"上传的文件，支持 {SUPPORTED_EXTENSIONS_TEXT}")
-
-
 class DocumentController:
-    def __init__(self, app: Flask):
+    def __init__(
+        self,
+        app: Flask,
+        import_service: DocumentImportService | None = None,
+        document_service: DocumentService | None = None,
+    ):
         self.app = app
-        self.import_service = DocumentImportService()
+        self.document_service = document_service or DocumentService()
+        self.import_service = import_service or DocumentImportService(
+            self.document_service
+        )
 
     def register(self):
         @self.app.post("/upload", tags=[tag], summary="上传笔记")
@@ -64,8 +68,8 @@ class DocumentController:
 
         @self.app.get("/docs", tags=[tag], summary="笔记列表")
         def list_docs():
-            return DocumentService().list()
+            return self.document_service.list()
 
         @self.app.delete("/docs/<name>", tags=[tag], summary="删除笔记")
         def delete_doc(path: DocPath):
-            return DocumentService().delete(path.name)
+            return self.document_service.delete(path.name)

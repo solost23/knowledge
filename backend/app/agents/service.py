@@ -1,4 +1,4 @@
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from loguru import logger
 
@@ -21,46 +21,19 @@ from app.agents.execution import (
 )
 from app.agents.graph import build_graph
 from app.agents.state import (
-    MAX_STEP_LENGTH,
-    MAX_TASK_LENGTH,
     AgentRunBusy,
     InvalidAgentRequest,
 )
+from app.agents.validation import validate_execution_id, validate_plan, validate_task
 from app.core import response
 from app.infrastructure import submit_task
 from app.infrastructure.llm import LLM, LLMConfigurationError
 
-
-def _validate_execution_id(execution_id: str) -> str:
-    try:
-        return str(UUID(str(execution_id)))
-    except (ValueError, TypeError, AttributeError) as error:
-        raise InvalidAgentRequest("execution_id 必须是有效的 UUID") from error
-
-
-def _validate_task(task: str) -> str:
-    task = task.strip() if isinstance(task, str) else ""
-    if not task:
-        raise InvalidAgentRequest("任务内容不能为空")
-    if len(task) > MAX_TASK_LENGTH:
-        raise InvalidAgentRequest(f"任务内容不能超过 {MAX_TASK_LENGTH} 个字符")
-    return task
-
-
-def _validate_plan(plan: list[str] | None) -> list[str]:
-    if plan is None:
-        return []
-    if not isinstance(plan, list):
-        raise InvalidAgentRequest("执行计划必须是步骤列表")
-    steps = []
-    for step in plan:
-        if not isinstance(step, str) or not step.strip():
-            raise InvalidAgentRequest("执行步骤不能为空")
-        step = step.strip()
-        if len(step) > MAX_STEP_LENGTH:
-            raise InvalidAgentRequest(f"单个执行步骤不能超过 {MAX_STEP_LENGTH} 个字符")
-        steps.append(step)
-    return steps
+# Kept as module aliases for existing integrations that imported these helpers
+# before validation was extracted into its own module.
+_validate_execution_id = validate_execution_id
+_validate_plan = validate_plan
+_validate_task = validate_task
 
 
 def _is_completed(state: dict) -> bool:
@@ -103,8 +76,8 @@ class AgentTaskService:
 
     def execute(self, task: str, plan: list[str] | None = None, llm=None):
         try:
-            task = _validate_task(task)
-            plan = _validate_plan(plan)
+            task = validate_task(task)
+            plan = validate_plan(plan)
             execution_id = str(uuid4())
             self._create_run(execution_id, task, plan)
         except InvalidAgentRequest as error:
@@ -116,7 +89,7 @@ class AgentTaskService:
         return self._run_created(execution_id, task, plan, llm)
 
     def create_routed_run(self, task: str, conversation_id: str):
-        task = _validate_task(task)
+        task = validate_task(task)
         execution_id = str(uuid4())
         initial_progress = {
             "stage": "routing",
@@ -161,8 +134,8 @@ class AgentTaskService:
         self, task: str, plan: list[str] | None = None, llm=None, on_complete=None
     ):
         try:
-            task = _validate_task(task)
-            plan = _validate_plan(plan)
+            task = validate_task(task)
+            plan = validate_plan(plan)
             if not plan:
                 raise InvalidAgentRequest("Agent 执行计划不能为空")
             execution_id = str(uuid4())
@@ -208,7 +181,7 @@ class AgentTaskService:
 
     def resume(self, execution_id: str):
         try:
-            execution_id = _validate_execution_id(execution_id)
+            execution_id = validate_execution_id(execution_id)
             with open_checkpointer() as checkpointer:
                 run = get_run(checkpointer, execution_id)
                 if run is None:
@@ -332,7 +305,7 @@ class AgentTaskService:
 
     def get_status(self, execution_id: str):
         try:
-            execution_id = _validate_execution_id(execution_id)
+            execution_id = validate_execution_id(execution_id)
             with open_checkpointer() as checkpointer:
                 run = get_run(checkpointer, execution_id)
                 if run is None:
@@ -374,7 +347,7 @@ class AgentTaskService:
 
     def cancel(self, execution_id: str):
         try:
-            execution_id = _validate_execution_id(execution_id)
+            execution_id = validate_execution_id(execution_id)
             with open_checkpointer() as checkpointer:
                 run = get_run(checkpointer, execution_id)
                 if run is None:

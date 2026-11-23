@@ -69,7 +69,9 @@ class DocumentService:
             if upload_job_id:
                 text.metadata["upload_job_id"] = upload_job_id
 
-        update_upload_progress(upload_job_id, 38, f"文本切分完成，共 {len(texts)} 个片段")
+        update_upload_progress(
+            upload_job_id, 38, f"文本切分完成，共 {len(texts)} 个片段"
+        )
         chroma_config = config.chroma
         existing = exists_doc(original_name)
         store = get_chroma()

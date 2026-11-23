@@ -15,7 +15,8 @@ from app.knowledge.documents import DocumentService
 
 
 class DocumentImportService:
-    def __init__(self):
+    def __init__(self, document_service: DocumentService | None = None):
+        self.document_service = document_service or DocumentService()
         self._recover_interrupted_jobs()
 
     def submit(self, file: FileStorage, extension: str, filename: str) -> dict:
@@ -55,7 +56,7 @@ class DocumentImportService:
         )
 
         try:
-            result, status_code = DocumentService().doc(
+            result, status_code = self.document_service.doc(
                 file_path,
                 filename,
                 upload_job_id=job_id,
@@ -71,7 +72,7 @@ class DocumentImportService:
         except Exception as error:
             logger.exception(f"文档导入任务失败: {job_id}")
             try:
-                DocumentService().discard_upload_job(job_id, filename)
+                self.document_service.discard_upload_job(job_id, filename)
             except Exception:
                 logger.exception(f"清理文档导入任务失败数据失败: {job_id}")
             update_upload_job(
@@ -87,7 +88,7 @@ class DocumentImportService:
     def _recover_interrupted_jobs(self) -> None:
         for job in list_active_upload_jobs():
             try:
-                DocumentService().discard_upload_job(job["id"], job["filename"])
+                self.document_service.discard_upload_job(job["id"], job["filename"])
             except Exception:
                 logger.exception(f"清理中断的文档导入任务失败: {job['id']}")
             update_upload_job(
