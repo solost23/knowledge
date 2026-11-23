@@ -1,42 +1,17 @@
-import sqlite3
+from sqlalchemy import func, select, update
 
-from app.core.settings import DATA_DIR
-
-
-def _connect() -> sqlite3.Connection:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(DATA_DIR / "knowledge.db"), timeout=30)
-    connection.row_factory = sqlite3.Row
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document_upload_jobs (
-            id TEXT PRIMARY KEY,
-            filename TEXT NOT NULL,
-            status TEXT NOT NULL,
-            progress INTEGER NOT NULL,
-            stage TEXT NOT NULL,
-            error TEXT,
-            created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-            updated_at DATETIME DEFAULT (datetime('now', 'localtime'))
-        )
-        """
-    )
-    connection.commit()
-    return connection
+from app.infrastructure.database import get_database
+from app.infrastructure.models import DocumentUploadJob
 
 
 def create_upload_job(job_id: str, filename: str) -> dict:
-    connection = _connect()
-    try:
-        with connection:
-            connection.execute(
-                "INSERT INTO document_upload_jobs (id, filename, status, progress, stage) "
-                "VALUES (?, ?, 'queued', 0, '等待处理')",
-                (job_id, filename),
-            )
-    finally:
-        connection.close()
-    return get_upload_job(job_id)
+    with get_database().session() as session:
+        job = DocumentUploadJob(
+            id=job_id, filename=filename, status="queued", progress=0, stage="等待处理"
+        )
+        session.add(job)
+        session.flush()
+        return job.as_dict()
 
 
 def update_upload_job(
@@ -47,57 +22,59 @@ def update_upload_job(
     stage: str,
     error: str | None = None,
 ) -> None:
-    connection = _connect()
-    try:
-        with connection:
-            connection.execute(
-                "UPDATE document_upload_jobs "
-                "SET status = ?, progress = COALESCE(?, progress), stage = ?, error = ?, "
-                "updated_at = datetime('now', 'localtime') WHERE id = ?",
-                (status, progress, stage, error, job_id),
-            )
-    finally:
-        connection.close()
+    values = {
+        "status": status,
+        "stage": stage,
+        "error": error,
+        "updated_at": func.datetime("now", "localtime"),
+    }
+    if progress is not None:
+        values["progress"] = progress
+    with get_database().session() as session:
+        session.execute(
+            update(DocumentUploadJob)
+            .where(DocumentUploadJob.id == job_id)
+            .values(**values)
+        )
 
 
 def update_upload_progress(job_id: str | None, progress: int, stage: str) -> None:
     if job_id is None:
         return
     progress = max(0, min(99, progress))
-    connection = _connect()
-    try:
-        with connection:
-            connection.execute(
-                "UPDATE document_upload_jobs "
-                "SET status = 'processing', progress = ?, stage = ?, "
-                "updated_at = datetime('now', 'localtime') "
-                "WHERE id = ? AND status IN ('queued', 'processing') AND progress < ?",
-                (progress, stage, job_id, progress),
+    with get_database().session() as session:
+        session.execute(
+            update(DocumentUploadJob)
+            .where(
+                DocumentUploadJob.id == job_id,
+                DocumentUploadJob.status.in_(("queued", "processing")),
+                DocumentUploadJob.progress < progress,
             )
-    finally:
-        connection.close()
+            .values(
+                status="processing",
+                progress=progress,
+                stage=stage,
+                updated_at=func.datetime("now", "localtime"),
+            )
+        )
 
 
 def get_upload_job(job_id: str) -> dict | None:
-    connection = _connect()
-    try:
-        row = connection.execute(
-            "SELECT id, filename, status, progress, stage, error, created_at, updated_at "
-            "FROM document_upload_jobs WHERE id = ?",
-            (job_id,),
-        ).fetchone()
-        return dict(row) if row else None
-    finally:
-        connection.close()
+    with get_database().session() as session:
+        job = session.get(DocumentUploadJob, job_id)
+        return job.as_dict() if job else None
 
 
 def list_active_upload_jobs() -> list[dict]:
-    connection = _connect()
-    try:
-        rows = connection.execute(
-            "SELECT id, filename, status, progress, stage, error "
-            "FROM document_upload_jobs WHERE status IN ('queued', 'processing')"
-        ).fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        connection.close()
+    with get_database().session() as session:
+        rows = session.execute(
+            select(
+                DocumentUploadJob.id,
+                DocumentUploadJob.filename,
+                DocumentUploadJob.status,
+                DocumentUploadJob.progress,
+                DocumentUploadJob.stage,
+                DocumentUploadJob.error,
+            ).where(DocumentUploadJob.status.in_(("queued", "processing")))
+        )
+        return [dict(row) for row in rows.mappings()]

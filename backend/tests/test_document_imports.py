@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from app.infrastructure import database
 from app.infrastructure import document_upload_repository as repository
 from app.knowledge.document_imports import DocumentImportService
 
@@ -11,7 +12,7 @@ class DocumentImportTestCase(unittest.TestCase):
     def test_failure_preserves_the_last_persisted_progress(self):
         with (
             TemporaryDirectory() as data_dir,
-            patch.object(repository, "DATA_DIR", Path(data_dir)),
+            patch.object(database, "DATA_DIR", Path(data_dir)),
             patch("app.knowledge.document_imports.DocumentService") as documents,
             patch("app.knowledge.document_imports.logger.exception"),
         ):

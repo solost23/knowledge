@@ -1,55 +1,38 @@
-import sqlite3
-import threading
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert
 
-from app.core.settings import DATA_DIR
+from app.infrastructure.database import get_database
+from app.infrastructure.models import DocumentRecord
 
-_local = threading.local()
 
-
-def _conn() -> sqlite3.Connection:
-    if not hasattr(_local, "conn"):
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        _local.conn = sqlite3.connect(
-            str(DATA_DIR / "knowledge.db"), check_same_thread=False
+def insert_doc(name: str) -> None:
+    with get_database().session() as session:
+        session.execute(
+            insert(DocumentRecord)
+            .values(name=name)
+            .on_conflict_do_nothing(index_elements=["name"])
         )
-        _local.conn.row_factory = sqlite3.Row
-        _init(_local.conn)
-    return _local.conn
-
-
-def _init(conn: sqlite3.Connection):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS docs (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            name    TEXT NOT NULL UNIQUE,
-            created_at DATETIME DEFAULT (datetime('now', 'localtime'))
-        )
-    """)
-    conn.commit()
-
-
-def insert_doc(name: str):
-    conn = _conn()
-    conn.execute("INSERT OR IGNORE INTO docs (name) VALUES (?)", (name,))
-    conn.commit()
 
 
 def exists_doc(name: str) -> bool:
-    conn = _conn()
-    row = conn.execute("SELECT 1 FROM docs WHERE name = ?", (name,)).fetchone()
-    return row is not None
+    with get_database().session() as session:
+        return (
+            session.scalar(select(DocumentRecord.id).where(DocumentRecord.name == name))
+            is not None
+        )
 
 
 def list_docs() -> list[dict]:
-    conn = _conn()
-    rows = conn.execute(
-        "SELECT id, name, created_at FROM docs ORDER BY created_at DESC"
-    ).fetchall()
-    return [dict(row) for row in rows]
+    with get_database().session() as session:
+        docs = session.scalars(
+            select(DocumentRecord).order_by(DocumentRecord.created_at.desc())
+        )
+        return [doc.as_dict() for doc in docs]
 
 
 def delete_doc(name: str) -> bool:
-    conn = _conn()
-    cur = conn.execute("DELETE FROM docs WHERE name = ?", (name,))
-    conn.commit()
-    return cur.rowcount > 0
+    with get_database().session() as session:
+        result = session.execute(
+            delete(DocumentRecord).where(DocumentRecord.name == name)
+        )
+        return result.rowcount > 0

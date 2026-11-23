@@ -84,6 +84,10 @@ APP_CONFIG__AGENT__MAX_TASK_LENGTH=3000
 - Agent 提供 `GET /agent/runs/{execution_id}` 查询状态，以及 `POST /agent/resume` 恢复失败执行。
 - `GET /healthz` 提供服务健康检查。
 
+SQLite 业务表统一使用 SQLAlchemy ORM：`backend/app/infrastructure/models.py` 定义表模型，`database.py` 管理连接引擎和事务，repository 模块封装数据操作。`get_database()` 复用引擎，每次 `session()` 创建独立 Session，成功时提交、异常时回滚。首次访问会自动建表，并补齐旧数据库中已有版本需要的字段和索引。
+
+数据库默认保存在 `APP_DATA_DIR` 下的 `knowledge.db`、`conversations.db`、`agent_checkpoints.db`，也可分别通过 `KNOWLEDGE_DB`、`CONVERSATION_DB`、`AGENT_CHECKPOINT_DB` 指定路径。Agent 任务记录使用 ORM，LangGraph 的检查点仍由 `SqliteSaver` 管理。
+
 ## 测试和评测
 
 运行完整后端测试：
