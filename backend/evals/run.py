@@ -2,7 +2,7 @@
 """RAG 评测脚本：召回、证据命中、答案关键词覆盖。
 
 用法：
-    uv run --locked python evals/run.py                     # 默认 chunk=500, k=5，含答案生成
+    uv run --locked python evals/run.py                     # 使用生产切分和检索配置，含答案生成
     uv run --locked python evals/run.py --no-answer         # 只评检索，不调 LLM
     uv run --locked python evals/run.py --chunk-size 300 --chunk-overlap 30 --k 3
     uv run --locked python evals/run.py --limit 5           # 快速冒烟
@@ -16,65 +16,70 @@ import argparse
 import json
 import os
 import re
-import shutil
 import statistics
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+EVAL_DIR = Path(__file__).resolve().parent
+ROOT = EVAL_DIR.parent
+sys.path.insert(0, str(ROOT))
 
-import yaml
-from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_core.documents import Document
+from langchain_community.vectorstores.utils import filter_complex_metadata
 from langchain_openai import ChatOpenAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app.core.settings import config
 from app.infrastructure.embeddings import FastEmbeddings
-from app.prompts.rag import EVAL_RAG_PROMPT
-
-load_dotenv(os.path.join(ROOT, ".env"))
-
-with open(os.path.join(ROOT, "conf", "config.yaml"), encoding="utf-8") as f:
-    CFG = yaml.safe_load(f)
+from app.knowledge.loaders import load_file
+from app.knowledge.loaders.dispatcher import SUPPORTED_EXTENSIONS
+from app.prompts.rag import RAG_PROMPT
 
 
 def norm(text: str) -> str:
     return re.sub(r"\s+", "", text or "")
 
 
-def build_index(corpus_dir: str, persist_dir: str, chunk_size: int, chunk_overlap: int):
-    if os.path.isdir(persist_dir):
-        shutil.rmtree(persist_dir)
+def build_index(
+    corpus_dir: str | Path,
+    persist_dir: str | Path,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
+):
+    if Path(persist_dir).exists():
+        raise FileExistsError(f"评测索引已存在，请使用新的 tag：{persist_dir}")
 
-    emb_cfg = CFG["embedding"]
-    embeddings = FastEmbeddings(
-        model_name=emb_cfg.get("model_name", "BAAI/bge-small-zh-v1.5"),
-        cache_dir=os.path.join(ROOT, emb_cfg["cache_path"].lstrip("./")),
-        threads=emb_cfg.get("threads"),
-    )
-
+    embeddings = FastEmbeddings()
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        chunk_size=config.documents["chunk_size"] if chunk_size is None else chunk_size,
+        chunk_overlap=(
+            config.documents["chunk_overlap"]
+            if chunk_overlap is None
+            else chunk_overlap
+        ),
     )
 
     docs = []
-    for name in sorted(os.listdir(corpus_dir)):
-        if not name.lower().endswith((".md", ".txt")):
+    file_count = 0
+    for path in sorted(Path(corpus_dir).iterdir()):
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             continue
-        with open(os.path.join(corpus_dir, name), encoding="utf-8") as f:
-            text = f.read()
-        docs.append(Document(page_content=text, metadata={"source": name}))
+        loaded = filter_complex_metadata(load_file(path))
+        file_count += 1
+        for doc in loaded:
+            doc.metadata["source"] = path.name
+        docs.extend(loaded)
 
     chunks = splitter.split_documents(docs)
     store = Chroma(
         collection_name="eval",
         embedding_function=embeddings,
-        persist_directory=persist_dir,
+        persist_directory=str(persist_dir),
     )
     store.add_documents(chunks)
-    return store, embeddings, len(docs), len(chunks)
+    return store, embeddings, file_count, len(chunks)
 
 
 def load_questions(path: str):
@@ -83,7 +88,7 @@ def load_questions(path: str):
 
 
 def build_llm():
-    cfg = CFG["chat_gpt"]
+    cfg = config.chat_gpt
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         raise SystemExit(
@@ -99,34 +104,67 @@ def build_llm():
     )
 
 
+def retrieve(
+    store, question: str, k: int | None = None, threshold: float | None = None
+):
+    return store.similarity_search_with_relevance_scores(
+        question,
+        k=int(config.chroma["top_k"]) if k is None else k,
+        score_threshold=(
+            float(config.chroma["relevance_threshold"])
+            if threshold is None
+            else threshold
+        ),
+    )
+
+
 def answer_question(llm, question: str, docs):
+    if not docs:
+        return "知识库中没有找到与问题直接相关的资料。", 0.0, 0
     context = "\n\n".join(
         f"[{i}] 来源：{d.metadata.get('source', '')}\n{d.page_content}"
         for i, d in enumerate(docs, 1)
     )
     started = time.perf_counter()
-    resp = llm.invoke(EVAL_RAG_PROMPT.format(context=context, question=question))
+    resp = llm.invoke(
+        RAG_PROMPT.invoke({"context": context, "question": question, "history": []})
+    )
     elapsed = (time.perf_counter() - started) * 1000
     usage = getattr(resp, "usage_metadata", None) or {}
     return resp.content, elapsed, usage.get("total_tokens", 0)
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--corpus", default=os.path.join(ROOT, "eval", "corpus"))
+    ap.add_argument("--corpus", type=Path, default=EVAL_DIR / "corpus")
+    ap.add_argument("--questions", type=Path, default=EVAL_DIR / "questions.jsonl")
+    ap.add_argument("--k", type=int, default=int(config.chroma["top_k"]))
     ap.add_argument(
-        "--questions", default=os.path.join(ROOT, "eval", "questions.jsonl")
+        "--relevance-threshold",
+        type=float,
+        default=float(config.chroma["relevance_threshold"]),
     )
-    ap.add_argument("--k", type=int, default=5)
-    ap.add_argument("--chunk-size", type=int, default=500)
-    ap.add_argument("--chunk-overlap", type=int, default=50)
+    ap.add_argument("--chunk-size", type=int, default=config.documents["chunk_size"])
+    ap.add_argument(
+        "--chunk-overlap", type=int, default=config.documents["chunk_overlap"]
+    )
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--no-answer", action="store_true")
     ap.add_argument("--tag", default="")
-    args = ap.parse_args()
+    return ap
 
-    tag = args.tag or f"chunk{args.chunk_size}_k{args.k}"
-    persist_dir = os.path.join(ROOT, "eval", ".chroma", tag)
+
+def main():
+    args = build_parser().parse_args()
+    tag = re.sub(r"[^A-Za-z0-9_-]", "_", args.tag)[:64] or (
+        f"chunk{args.chunk_size}_k{args.k}_{datetime.now():%Y%m%d_%H%M%S_%f}"
+    )
+    persist_dir = EVAL_DIR / ".chroma" / tag
+    report_dir = EVAL_DIR / "reports"
+    json_path = report_dir / f"{tag}.json"
+    md_path = report_dir / f"{tag}.md"
+    if json_path.exists() or md_path.exists():
+        raise FileExistsError(f"评测报告已存在，请使用新的 tag：{tag}")
 
     t0 = time.perf_counter()
     store, _emb, n_docs, n_chunks = build_index(
@@ -138,12 +176,12 @@ def main():
     if args.limit:
         questions = questions[: args.limit]
 
-    llm = None if args.no_answer else build_llm()
+    llm = None
 
     rows = []
     for q in questions:
         started = time.perf_counter()
-        hits = store.similarity_search_with_score(q["question"], k=args.k)
+        hits = retrieve(store, q["question"], args.k, args.relevance_threshold)
         retrieval_ms = (time.perf_counter() - started) * 1000
 
         docs = [d for d, _ in hits]
@@ -169,8 +207,10 @@ def main():
                 norm(q["gold_evidence"]) in norm(d.page_content) for d in docs
             )
 
-        if llm is not None:
+        if not args.no_answer:
             try:
+                if docs and llm is None:
+                    llm = build_llm()
                 answer, gen_ms, tokens = answer_question(llm, q["question"], docs)
                 row["answer"] = answer
                 row["gen_ms"] = round(gen_ms, 1)
@@ -207,6 +247,7 @@ def main():
         "chunk_size": args.chunk_size,
         "chunk_overlap": args.chunk_overlap,
         "k": args.k,
+        "relevance_threshold": args.relevance_threshold,
         "docs": n_docs,
         "chunks": n_chunks,
         "build_ms": round(build_ms, 1),
@@ -248,13 +289,11 @@ def main():
                 sum(bool(r["abstained"]) for r in abstain_rows) / len(abstain_rows), 4
             )
 
-    os.makedirs(os.path.join(ROOT, "eval", "reports"), exist_ok=True)
-    json_path = os.path.join(ROOT, "eval", "reports", f"{tag}.json")
-    with open(json_path, "w", encoding="utf-8") as f:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    with open(json_path, "x", encoding="utf-8") as f:
         json.dump({"summary": summary, "rows": rows}, f, ensure_ascii=False, indent=2)
 
-    md_path = os.path.join(ROOT, "eval", "reports", f"{tag}.md")
-    with open(md_path, "w", encoding="utf-8") as f:
+    with open(md_path, "x", encoding="utf-8") as f:
         f.write(f"# RAG 评测报告：{tag}\n\n")
         f.write("| 指标 | 值 |\n|---|---|\n")
         for key, value in summary.items():

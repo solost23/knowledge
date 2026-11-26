@@ -8,6 +8,7 @@ import {
   Upload, X,
 } from 'lucide-vue-next'
 import { api, ApiError } from './api/client'
+import { clearStoredTask, isPermanentError, retryDelay, waitForPoll } from './api/tracking'
 import WorkspaceDetails from './components/WorkspaceDetails.vue'
 import type {
   AskResult,
@@ -35,6 +36,22 @@ interface ImportProgress {
 
 const markdown = new MarkdownIt({ breaks: true, linkify: true })
 const uploadTaskStorageKey = 'knowledge.activeDocumentUpload'
+const lifetime = new AbortController()
+let conversationVersion = 0
+let conversationRequest: AbortController | undefined
+let trackingController: AbortController | undefined
+const pendingUploadId = ref(localStorage.getItem(uploadTaskStorageKey) ?? '')
+const uploadBusy = computed(() => uploading.value || !!pendingUploadId.value)
+
+function invalidateConversationRequest() {
+  conversationVersion += 1
+  conversationRequest?.abort()
+}
+
+function clearUploadTask(id: string) {
+  clearStoredTask(localStorage, uploadTaskStorageKey, id)
+  if (pendingUploadId.value === id) pendingUploadId.value = localStorage.getItem(uploadTaskStorageKey) ?? ''
+}
 const documents = ref<KnowledgeDocument[]>([])
 const conversations = ref<ConversationSummary[]>([])
 const messages = ref<Message[]>([])
@@ -108,7 +125,7 @@ watch(messages, () => scrollConversation(), { deep: true, flush: 'post' })
 
 async function refreshDocuments() {
   try {
-    documents.value = (await api.documents()).data
+    documents.value = (await api.documents(lifetime.signal)).data
     connected.value = true
   } catch (cause) {
     connected.value = false
@@ -117,22 +134,27 @@ async function refreshDocuments() {
 }
 
 async function checkConnection() {
-  try { connected.value = await api.health() } catch { connected.value = false }
+  try { connected.value = await api.health(lifetime.signal) } catch { connected.value = false }
 }
 
 async function refreshConversations() {
   try {
-    conversations.value = (await api.conversations()).data
+    conversations.value = (await api.conversations(lifetime.signal)).data
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '无法读取对话列表'
   }
 }
 
 async function selectConversation(id: string) {
-  if (loading.value || id === activeConversationId.value) return
+  if (loading.value) return
+  invalidateConversationRequest()
+  if (id === activeConversationId.value) return
+  const version = conversationVersion
+  conversationRequest = new AbortController()
   error.value = ''
   try {
-    const conversation = (await api.conversation(id)).data
+    const conversation = (await api.conversation(id, conversationRequest.signal)).data
+    if (version !== conversationVersion || lifetime.signal.aborted) return
     activeConversationId.value = conversation.id
     messages.value = conversation.messages.map((message) => ({
       id: message.id,
@@ -144,6 +166,7 @@ async function selectConversation(id: string) {
     selectedSource.value = null
     showConversationDrawer.value = false
   } catch (cause) {
+    if (version !== conversationVersion || lifetime.signal.aborted) return
     error.value = cause instanceof Error ? cause.message : '无法读取对话'
   }
 }
@@ -151,6 +174,9 @@ async function selectConversation(id: string) {
 async function sendTask() {
   const prompt = task.value.trim()
   if (!prompt || loading.value) return
+  invalidateConversationRequest()
+  let conversationId = activeConversationId.value
+  const contextMessages = messages.value
   error.value = ''
   task.value = ''
   const userMessage: Message = { id: Date.now(), role: 'user', text: prompt }
@@ -159,14 +185,13 @@ async function sendTask() {
   await nextTick()
   scrollConversation(true)
   try {
-    let conversationId = activeConversationId.value
     if (!conversationId) {
-      const created = (await api.createConversation()).data
+      const created = (await api.createConversation(lifetime.signal)).data
       conversationId = created.id
       activeConversationId.value = conversationId
       conversations.value.unshift(created)
     }
-    const result = (await api.ask(prompt, conversationId)).data
+    const result = (await api.ask(prompt, conversationId, lifetime.signal)).data
     failedExecutionId.value = ''
     activeExecutionId.value = result.execution_id ?? ''
     stopRequested.value = false
@@ -176,9 +201,9 @@ async function sendTask() {
       text: result.answer,
       result,
     }
-    messages.value.push(assistantMessage)
+    contextMessages.push(assistantMessage)
     if (result.status === 'running' && result.execution_id) {
-      await trackRun(assistantMessage)
+      await trackRun(contextMessages[contextMessages.length - 1]!)
     } else {
       await refreshConversations()
     }
@@ -202,53 +227,92 @@ async function sendTask() {
 async function trackRun(message: Message) {
   const run = message.result
   if (!run?.execution_id) return
+  const controller = new AbortController()
+  trackingController = controller
+  const cancel = () => controller.abort()
+  lifetime.signal.addEventListener('abort', cancel, { once: true })
+  if (lifetime.signal.aborted) cancel()
   let connectionFailures = 0
-  while (run.status === 'running') {
-    await new Promise((resolve) => window.setTimeout(resolve, 1000))
-    try {
-      const progress = (await api.agentRun(run.execution_id)).data
-      connectionFailures = 0
-      Object.assign(run, progress, {
-        mode: progress.mode ?? run.mode,
-        route_reason: progress.route_reason ?? run.route_reason,
-        conversation_id: progress.conversation_id ?? run.conversation_id,
-      })
-      if (progress.status === 'completed') {
-        message.text = progress.answer
-        failedExecutionId.value = ''
-        await refreshConversations()
-      } else if (progress.status === 'failed') {
-        message.text = progress.result?.error_message || '任务执行中断。'
-        failedExecutionId.value = progress.resumable ? run.execution_id : ''
-        error.value = progress.resumable
-          ? 'Agent 执行中断，可以恢复任务。'
-          : message.text
-      } else if (progress.status === 'cancelled') {
-        message.text = '任务已停止'
-        failedExecutionId.value = ''
-        await refreshConversations()
+  try {
+    while (run.status === 'running') {
+      try {
+        await waitForPoll(retryDelay(connectionFailures), controller.signal)
+        const progress = (await api.agentRun(run.execution_id, controller.signal)).data
+        controller.signal.throwIfAborted()
+        connectionFailures = 0
+        Object.assign(run, progress, {
+          mode: progress.mode ?? run.mode,
+          route_reason: progress.route_reason ?? run.route_reason,
+          conversation_id: progress.conversation_id ?? run.conversation_id,
+        })
+        if (progress.status === 'completed') {
+          message.text = progress.answer
+          failedExecutionId.value = ''
+          await refreshConversations()
+        } else if (progress.status === 'failed') {
+          message.text = progress.result?.error_message || '任务执行中断。'
+          failedExecutionId.value = progress.resumable ? run.execution_id : ''
+          error.value = progress.resumable ? 'Agent 执行中断，可以恢复任务。' : message.text
+        } else if (progress.status === 'cancelled') {
+          message.text = '任务已停止'
+          failedExecutionId.value = ''
+          await refreshConversations()
+        }
+        await nextTick()
+        scrollConversation()
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          run.current_action = '已停止等待；后台任务可能仍在运行，可重新连接查看'
+          return
+        }
+        connectionFailures += 1
+        if (isPermanentError(cause) || connectionFailures >= 5) {
+          run.current_action = '状态追踪已暂停；后台任务状态未知，可重新连接查看'
+          error.value = cause instanceof Error ? cause.message : '暂时无法获取执行状态'
+          return
+        }
+        run.current_action = `状态连接中断，正在重试（${connectionFailures}/5）…`
       }
-      await nextTick()
-      scrollConversation()
-    } catch {
-      connectionFailures += 1
-      run.current_action = connectionFailures >= 5
-        ? '状态连接中断，正在重试…'
-        : '正在读取 Agent 执行状态…'
     }
+  } finally {
+    lifetime.signal.removeEventListener('abort', cancel)
+    if (trackingController === controller) trackingController = undefined
+  }
+}
+
+function stopWaiting() {
+  trackingController?.abort()
+}
+
+async function reconnectRun(message: Message) {
+  if (loading.value || message.result?.status !== 'running' || !message.result.execution_id) return
+  invalidateConversationRequest()
+  loading.value = true
+  error.value = ''
+  failedExecutionId.value = ''
+  activeExecutionId.value = message.result.execution_id
+  try {
+    await trackRun(message)
+  } finally {
+    loading.value = false
+    activeExecutionId.value = ''
+    stopRequested.value = false
   }
 }
 
 async function stopTask() {
   if (!activeExecutionId.value || stopRequested.value) return
+  const executionId = activeExecutionId.value
   stopRequested.value = true
-  if (activeExecution.value) {
-    activeExecution.value.cancel_requested = true
-    activeExecution.value.current_action = '正在停止，等待当前模型或工具调用返回'
+  const execution = messages.value.find((message) => message.result?.execution_id === executionId)?.result
+  if (execution) {
+    execution.cancel_requested = true
+    execution.current_action = '正在停止，等待当前模型或工具调用返回'
   }
   try {
-    await api.cancelRun(activeExecutionId.value)
+    await api.cancelRun(executionId, lifetime.signal)
   } catch (cause) {
+    if (activeExecutionId.value !== executionId) return
     stopRequested.value = false
     error.value = cause instanceof Error ? cause.message : '停止任务失败'
   }
@@ -256,18 +320,43 @@ async function stopTask() {
 
 async function resumeTask() {
   if (!failedExecutionId.value || loading.value) return
+  invalidateConversationRequest()
+  const executionId = failedExecutionId.value
   loading.value = true
   error.value = ''
   try {
-    const result = (await api.resume(failedExecutionId.value)).data
+    const result = (await api.resume(executionId, lifetime.signal)).data
     failedExecutionId.value = ''
     const agentResult = { ...result, mode: 'agent' as const }
     messages.value.push({ id: Date.now(), role: 'assistant', text: result.answer, result: agentResult })
-    await refreshConversations()
+    if (result.status === 'running' && result.execution_id) {
+      activeExecutionId.value = result.execution_id
+      await trackRun(messages.value[messages.value.length - 1]!)
+    } else await refreshConversations()
   } catch (cause) {
+    if (lifetime.signal.aborted) return
+    if (!isPermanentError(cause)) {
+      // 同步恢复可能仍在服务端运行；响应丢失后只查询原任务，禁止再次提交恢复。
+      failedExecutionId.value = ''
+      messages.value.push({
+        id: `resume-${executionId}-${Date.now()}`,
+        role: 'assistant',
+        text: '',
+        result: {
+          execution_id: executionId,
+          mode: 'agent',
+          status: 'running',
+          answer: '',
+          sources: [],
+          current_action: '恢复请求响应中断，后台状态未知；请重新连接查看，不要重复执行',
+        },
+      })
+    }
     error.value = cause instanceof Error ? cause.message : '恢复任务失败'
   } finally {
     loading.value = false
+    activeExecutionId.value = ''
+    stopRequested.value = false
   }
 }
 
@@ -278,44 +367,56 @@ function onComposerKeydown(event: KeyboardEvent) {
   }
 }
 
+function pickFiles() {
+  if (!uploadBusy.value) fileInput.value?.click()
+}
+
 async function uploadFiles(event: Event) {
   const input = event.target as HTMLInputElement
+  if (uploadBusy.value) { input.value = ''; return }
   const files = Array.from(input.files ?? [])
   if (!files.length) return
   uploading.value = true
   error.value = ''
-  for (const file of files) {
-    importProgress.value = {
-      filename: file.name,
-      status: 'uploading',
-      progress: 0,
-      uploadProgress: 0,
-      stage: '正在上传文件',
-    }
-    try {
-      const accepted = (await api.upload(file, (progress) => {
-        if (importProgress.value?.filename === file.name) {
-          importProgress.value.uploadProgress = progress
-        }
-      })).data
-      localStorage.setItem(uploadTaskStorageKey, accepted.id)
-      const finished = await trackDocumentImport(accepted)
-      if (!finished) break
-      if (finished.status === 'failed') throw new Error(finished.error || '文档导入失败')
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : `导入 ${file.name} 失败`
-      error.value = message
-      if (importProgress.value) {
-        importProgress.value.status = 'failed'
-        importProgress.value.stage = '导入失败'
-        importProgress.value.error = message
+  try {
+    for (const file of files) {
+      importProgress.value = {
+        filename: file.name,
+        status: 'uploading',
+        progress: 0,
+        uploadProgress: 0,
+        stage: '正在上传文件',
       }
-      break
+      try {
+        const accepted = (await api.upload(file, (progress) => {
+          if (importProgress.value?.filename === file.name) {
+            importProgress.value.uploadProgress = progress
+          }
+        }, lifetime.signal)).data
+        pendingUploadId.value = accepted.id
+        localStorage.setItem(uploadTaskStorageKey, accepted.id)
+        const finished = await trackDocumentImport(accepted)
+        if (!finished) break
+        if (finished.status === 'failed') throw new Error(finished.error || '文档导入失败')
+        if (pendingUploadId.value) break
+      } catch (cause) {
+        if (lifetime.signal.aborted) break
+        const message = cause instanceof Error ? cause.message : `导入 ${file.name} 失败`
+        error.value = message
+        if (importProgress.value) {
+          // 已接收的任务只暂停追踪，不能将网络故障当作后台导入失败。
+          if (!pendingUploadId.value) importProgress.value.status = 'failed'
+          importProgress.value.stage = pendingUploadId.value ? '状态未知，可重新连接查看' : '上传未确认，请刷新列表检查'
+          importProgress.value.error = message
+        }
+        break
+      }
     }
+    if (!lifetime.signal.aborted) await refreshDocuments()
+  } finally {
+    uploading.value = false
+    input.value = ''
   }
-  await refreshDocuments()
-  uploading.value = false
-  input.value = ''
 }
 
 function applyImportJob(job: DocumentUploadJob) {
@@ -335,38 +436,46 @@ async function trackDocumentImport(initialJob: DocumentUploadJob): Promise<Docum
   applyImportJob(job)
 
   while (job.status === 'queued' || job.status === 'processing') {
-    await new Promise((resolve) => window.setTimeout(resolve, 1000))
     try {
-      job = (await api.uploadTask(job.id)).data
+      await waitForPoll(retryDelay(connectionFailures), lifetime.signal)
+      job = (await api.uploadTask(job.id, lifetime.signal)).data
       connectionFailures = 0
       applyImportJob(job)
-    } catch {
+    } catch (cause) {
+      if (lifetime.signal.aborted) return null
       connectionFailures += 1
       if (importProgress.value) importProgress.value.stage = '连接暂时中断，正在重试获取进度'
-      if (connectionFailures >= 5) {
+      if (isPermanentError(cause) || connectionFailures >= 5) {
         if (importProgress.value) {
-          importProgress.value.stage = '暂时无法获取状态，刷新页面可继续查看'
+          importProgress.value.stage = '无法获取状态，可重新连接查看'
+          importProgress.value.error = cause instanceof Error ? cause.message : undefined
         }
         return null
       }
     }
   }
 
-  localStorage.removeItem(uploadTaskStorageKey)
+  clearUploadTask(job.id)
   if (job.status === 'completed') await refreshDocuments()
   return job
 }
 
 async function resumeDocumentImport() {
-  const jobId = localStorage.getItem(uploadTaskStorageKey)
+  if (uploading.value) return
+  const jobId = pendingUploadId.value || localStorage.getItem(uploadTaskStorageKey)
   if (!jobId) return
+  pendingUploadId.value = jobId
+  uploading.value = true
+  error.value = ''
   try {
-    const job = (await api.uploadTask(jobId)).data
-    if (job.status === 'queued' || job.status === 'processing') uploading.value = true
+    const job = (await api.uploadTask(jobId, lifetime.signal)).data
     const finished = await trackDocumentImport(job)
     if (finished?.status === 'failed') error.value = finished.error || '文档导入失败'
-  } catch {
-    localStorage.removeItem(uploadTaskStorageKey)
+  } catch (cause) {
+    if (lifetime.signal.aborted) return
+    // 只有明确不存在的任务才移除恢复记录，临时故障保留任务所有权。
+    if (cause instanceof ApiError && [404, 410].includes(cause.status)) clearUploadTask(jobId)
+    error.value = cause instanceof Error ? cause.message : '无法获取导入状态，请重新连接'
   } finally {
     uploading.value = false
   }
@@ -375,7 +484,7 @@ async function resumeDocumentImport() {
 async function removeDocument(doc: KnowledgeDocument) {
   if (!window.confirm(`从知识库删除“${doc.name}”？`)) return
   try {
-    await api.removeDocument(doc.name)
+    await api.removeDocument(doc.name, lifetime.signal)
     await refreshDocuments()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '删除失败'
@@ -384,6 +493,7 @@ async function removeDocument(doc: KnowledgeDocument) {
 
 function newConversation() {
   if (loading.value) return
+  invalidateConversationRequest()
   activeConversationId.value = null
   messages.value = []
   error.value = ''
@@ -396,7 +506,8 @@ function newConversation() {
 async function removeConversation(conversation: ConversationSummary) {
   if (!window.confirm(`删除对话“${conversation.title}”？`)) return
   try {
-    await api.deleteConversation(conversation.id)
+    invalidateConversationRequest()
+    await api.deleteConversation(conversation.id, lifetime.signal)
     conversations.value = conversations.value.filter((item) => item.id !== conversation.id)
     if (activeConversationId.value === conversation.id) newConversation()
   } catch (cause) {
@@ -426,13 +537,18 @@ onMounted(() => {
   void refreshDocuments()
   void checkConnection()
   void resumeDocumentImport()
+  const initialVersion = conversationVersion
   void (async () => {
     await refreshConversations()
-    if (conversations.value.length) await selectConversation(conversations.value[0]!.id)
+    if (!lifetime.signal.aborted && initialVersion === conversationVersion && conversations.value.length) {
+      await selectConversation(conversations.value[0]!.id)
+    }
   })()
 })
 
 onBeforeUnmount(() => {
+  invalidateConversationRequest()
+  lifetime.abort()
   mobileQuery.removeEventListener('change', updateViewport)
   if (elapsedTimer !== undefined) window.clearInterval(elapsedTimer)
 })
@@ -521,6 +637,8 @@ onBeforeUnmount(() => {
                   <div v-if="message.result?.status === 'running'" class="agent-live-status">
                     <LoaderCircle class="spin" :size="14" />
                     <span>{{ message.result.current_action || '正在处理请求…' }}</span>
+                    <button v-if="!loading" class="resume-button" @click="reconnectRun(message)">重新连接</button>
+                    <button v-else-if="activeExecutionId === message.result.execution_id" class="resume-button" @click="stopWaiting">停止等待</button>
                   </div>
                   <div v-if="message.result?.status === 'cancelled'" class="cancelled-status">任务已停止</div>
                   <div v-if="message.result?.mode === 'agent' && message.result.plan?.length" class="plan-block">
@@ -543,6 +661,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="composer-area">
+            <div v-if="pendingUploadId && !uploading" class="error-banner"><span>有文档导入任务等待确认状态</span><button class="resume-button" @click="resumeDocumentImport">重新连接导入</button></div>
             <div v-if="importProgress" :class="['import-progress-panel', `import-${importProgress.status}`]">
               <div class="import-progress-heading">
                 <LoaderCircle v-if="['uploading', 'queued', 'processing'].includes(importProgress.status)" class="spin" :size="14" />
@@ -574,8 +693,8 @@ onBeforeUnmount(() => {
               <textarea ref="composer" v-model="task" rows="1" placeholder="向你的知识库提问，或描述一项需要完成的任务…" :disabled="loading" @keydown="onComposerKeydown"></textarea>
               <div class="composer-bottom">
                 <div class="composer-tools">
-                  <input ref="fileInput" type="file" accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.log,.py,.go,.java,.js,.ts,.tsx,.jsx,.sql,.yaml,.yml,.toml,.ini,.cfg,.conf,.sh,.bash,.zsh,.c,.h,.cc,.cpp,.hpp,.rs,.rb,.php,.css,.scss,.vue,.svelte,.csv,.tsv,.json,.html,.htm,.xml" multiple hidden @change="uploadFiles" />
-                  <button class="tool-button" :disabled="uploading" title="上传文档" @click="fileInput?.click()"><Upload v-if="!uploading" :size="15" /><LoaderCircle v-else class="spin" :size="15" /><span>{{ uploading ? '正在导入' : '添加资料' }}</span></button>
+                  <input ref="fileInput" type="file" accept=".pdf,.docx,.pptx,.xlsx,.md,.txt,.log,.py,.go,.java,.js,.ts,.tsx,.jsx,.sql,.yaml,.yml,.toml,.ini,.cfg,.conf,.sh,.bash,.zsh,.c,.h,.cc,.cpp,.hpp,.rs,.rb,.php,.css,.scss,.vue,.svelte,.csv,.tsv,.json,.html,.htm,.xml" multiple hidden :disabled="uploadBusy" @change="uploadFiles" />
+                  <button class="tool-button" :disabled="uploadBusy" title="上传文档" @click="pickFiles"><Upload v-if="!uploading" :size="15" /><LoaderCircle v-else class="spin" :size="15" /><span>{{ uploading ? '正在导入' : '添加资料' }}</span></button>
                   <span class="tool-divider"></span><span class="composer-hint"><kbd>↵</kbd> 发送 <span>·</span> <kbd>⇧ ↵</kbd> 换行</span>
                 </div>
                 <button v-if="loading && activeExecutionId" class="stop-button" :disabled="stopRequested" :aria-label="stopRequested ? '正在停止' : '停止执行'" :title="stopRequested ? '正在停止…' : '停止执行'" @click="stopTask"><LoaderCircle v-if="stopRequested" class="spin" :size="16" /><StopCircle v-else :size="17" /></button>
@@ -592,13 +711,13 @@ onBeforeUnmount(() => {
           :documents="visibleDocuments"
           :document-count="documents.length"
           :filter="filter"
-          :uploading="uploading"
+          :uploading="uploadBusy"
           :latest-run="latestRun"
           :is-mobile="isMobile"
           :show-mobile-details="showMobileDetails"
           @clear-source="selectedSource = null"
           @update:filter="filter = $event"
-          @pick-files="fileInput?.click()"
+          @pick-files="pickFiles"
           @refresh-documents="refreshDocuments"
           @remove-document="removeDocument"
         />

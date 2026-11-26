@@ -11,10 +11,27 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
+from app.agents.checkpoints import (
+    get_run,
+    open_checkpointer,
+    recover_interrupted_runs,
+    request_run_cancel,
+)
+from app.agents.execution import (
+    _save_cancelled_result,
+    persist_completed,
+    recover_pending_exchanges,
+)
 from app.agents.graph import compile_graph
 from app.agents.service import AgentTaskService, _validate_plan
 from app.agents.state import SearchKnowledgeInput, TaskPlan
 from app.agents.tools import search_knowledge
+from app.infrastructure.conversation_repository import (
+    create_conversation,
+    delete_conversation,
+    get_conversation,
+)
+from app.infrastructure.database import dispose_databases
 
 
 class FakePlanner:
@@ -395,6 +412,334 @@ class AgentGraphTestCase(unittest.TestCase):
         self.assertTrue(run["finished_at"])
         self.assertGreater(run["duration_ms"], 0)
         self.assertTrue(run["cancel_requested"])
+
+    def test_startup_outbox_repairs_completed_exchange_once_and_skips_deleted(self):
+        from app.agents.ask_run_lifecycle import AskRunLifecycle
+        from app.agents.dispatcher import RequestRoute
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ,
+                {
+                    "APP_DATA_DIR": directory,
+                    "AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db"),
+                    "CONVERSATION_DB": os.path.join(directory, "conversations.db"),
+                },
+            ),
+        ):
+            service = AgentTaskService()
+            conversations = []
+            for mode in ("agent", "rag"):
+                conversation_id = create_conversation()["id"]
+                conversations.append(conversation_id)
+                execution_id, _ = service.create_routed_run("问题", conversation_id)
+                if mode == "agent":
+                    with (
+                        patch(
+                            "app.agents.execution.append_exchange",
+                            side_effect=RuntimeError("崩溃窗口"),
+                        ),
+                        patch("app.agents.execution.logger.exception"),
+                        open_checkpointer() as checkpointer,
+                    ):
+                        persist_completed(
+                            checkpointer,
+                            execution_id,
+                            {"answer": "答案", "plan": [], "current_step": 0},
+                        )
+                else:
+                    with (
+                        patch(
+                            "app.agents.ask_run_lifecycle.append_exchange",
+                            side_effect=RuntimeError("崩溃窗口"),
+                        ),
+                        self.assertRaises(RuntimeError),
+                    ):
+                        AskRunLifecycle.complete_rag(
+                            execution_id,
+                            "问题",
+                            conversation_id,
+                            RequestRoute(
+                                mode="rag", reason="检索", resolved_task="问题"
+                            ),
+                            {"answer": "答案"},
+                        )
+                self.assertEqual([], get_conversation(conversation_id)["messages"])
+            deleted_id = create_conversation()["id"]
+            deleted_run, _ = service.create_routed_run("已删除问题", deleted_id)
+            with open_checkpointer() as checkpointer:
+                persist_completed(checkpointer, deleted_run, {"answer": "答案"})
+            delete_conversation(deleted_id)
+            dispose_databases()
+            for _ in range(2):
+                recover_interrupted_runs()
+                recover_pending_exchanges()
+                dispose_databases()
+            for conversation_id in conversations:
+                messages = get_conversation(conversation_id)["messages"]
+                self.assertEqual(["问题", "答案"], [m["content"] for m in messages])
+            self.assertIsNone(get_conversation(deleted_id))
+
+    def test_completed_status_uses_result_and_running_status_hides_stale_result(self):
+        from app.agents.checkpoints import save_run_result, set_run_status
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ,
+                {
+                    "APP_DATA_DIR": directory,
+                    "AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db"),
+                },
+            ),
+        ):
+            execution_id = "00000000-0000-0000-0000-000000000005"
+            service = AgentTaskService()
+            service._create_run(execution_id, "问题", ["一步"])
+            with open_checkpointer() as checkpointer:
+                save_run_result(
+                    checkpointer, execution_id, {"answer": "旧答案", "status": "failed"}
+                )
+            self.assertIsNone(service.get_status(execution_id)[0]["data"]["result"])
+            with open_checkpointer() as checkpointer:
+                set_run_status(checkpointer, execution_id, "running")
+                self.assertIsNone(get_run(checkpointer, execution_id)["result"])
+                persist_completed(
+                    checkpointer,
+                    execution_id,
+                    {
+                        "plan": ["最终计划"],
+                        "current_step": 1,
+                        "steps": [],
+                        "sources": [],
+                        "answer": "最终答案",
+                    },
+                )
+            with patch(
+                "app.agents.service.checkpoint_values",
+                return_value={
+                    "plan": ["旧计划"],
+                    "current_step": 9,
+                    "steps": [{"old": True}],
+                    "sources": [{"old": True}],
+                    "answer": "旧答案",
+                },
+            ):
+                result = service.get_status(execution_id)[0]["data"]
+            self.assertEqual(["最终计划"], result["plan"])
+            self.assertEqual(1, result["current_step"])
+            self.assertEqual([], result["steps"])
+            self.assertEqual([], result["sources"])
+            self.assertEqual("最终答案", result["answer"])
+
+    def test_inner_agent_checks_cancellation_before_models_and_tools(self):
+        from unittest.mock import Mock
+
+        from app.agents.graph import build_graph
+        from app.agents.state import AgentRunCancelled
+
+        with (
+            patch("app.agents.graph.create_agent") as create_agent,
+            patch("app.agents.graph.compile_graph"),
+            patch("app.agents.graph.run_cancel_requested", return_value=True),
+        ):
+            build_graph(Mock(), execution_id="inner-loop")
+            model_guard, tool_guard = create_agent.call_args.kwargs["middleware"]
+            with self.assertRaises(AgentRunCancelled):
+                model_guard.before_model({}, None)
+            handler = Mock()
+            with self.assertRaises(AgentRunCancelled):
+                tool_guard.wrap_tool_call(Mock(), handler)
+            handler.assert_not_called()
+
+    def test_status_is_read_only_even_with_finalized_checkpoint(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db")}
+            ),
+            patch(
+                "app.agents.service.checkpoint_values",
+                return_value={
+                    "plan": ["一步"],
+                    "current_step": 1,
+                    "answer": "尚未提交的答案",
+                },
+            ),
+        ):
+            service = AgentTaskService()
+            service._create_run(
+                "00000000-0000-0000-0000-000000000001", "任务", ["一步"]
+            )
+            with open_checkpointer() as checkpointer:
+                before = get_run(checkpointer, "00000000-0000-0000-0000-000000000001")
+            for _ in range(2):
+                body, status = service.get_status(
+                    "00000000-0000-0000-0000-000000000001"
+                )
+                self.assertEqual(200, status)
+                self.assertEqual("running", body["data"]["status"])
+                self.assertEqual("", body["data"]["answer"])
+            with open_checkpointer() as checkpointer:
+                after = get_run(checkpointer, "00000000-0000-0000-0000-000000000001")
+            before.pop("duration_ms")
+            after.pop("duration_ms")
+            self.assertEqual(before, after)
+
+    def test_finalizer_cancel_does_not_publish_answer_or_revive_cancelled_run(self):
+        service = AgentTaskService()
+
+        def build_graph(_llm, checkpointer, execution_id=None):
+            class CancellingFinalizer:
+                def invoke(self, messages):
+                    request_run_cancel(checkpointer, execution_id)
+                    return AIMessage(content="取消后返回的答案")
+
+            return compile_graph(
+                None, FakeExecutor(), CancellingFinalizer(), checkpointer, execution_id
+            )
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db")}
+            ),
+            patch("app.agents.execution.build_graph", side_effect=build_graph),
+        ):
+            body, status = service.execute("任务", ["一步"], llm=object())
+            execution_id = body["data"]["execution_id"]
+            self.assertEqual(200, status)
+            self.assertEqual("cancelled", body["data"]["status"])
+            progress, _ = service.get_status(execution_id)
+            self.assertEqual("cancelled", progress["data"]["status"])
+            self.assertEqual("", progress["data"]["answer"])
+            self.assertEqual(409, service.resume(execution_id)[1])
+
+    def test_completed_run_cannot_be_rewritten_as_cancelled(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db")}
+            ),
+        ):
+            AgentTaskService()._create_run(
+                "00000000-0000-0000-0000-000000000002", "任务", ["一步"]
+            )
+            state = {
+                "task": "任务",
+                "plan": ["一步"],
+                "current_step": 1,
+                "answer": "答案",
+            }
+            with open_checkpointer() as checkpointer:
+                first = persist_completed(
+                    checkpointer, "00000000-0000-0000-0000-000000000002", state
+                )
+                second = persist_completed(
+                    checkpointer, "00000000-0000-0000-0000-000000000002", state
+                )
+            self.assertEqual(first, second)
+            self.assertEqual(
+                first, _save_cancelled_result("00000000-0000-0000-0000-000000000002")
+            )
+            self.assertEqual(
+                409,
+                AgentTaskService().cancel("00000000-0000-0000-0000-000000000002")[1],
+            )
+
+    def test_resume_persists_conversation_once_and_repairs_missing_exchange(self):
+        executor = FailOnceExecutor()
+
+        def build_graph(_llm, checkpointer, execution_id=None):
+            return compile_graph(
+                None, executor, FakeFinalizer(), checkpointer, execution_id
+            )
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ,
+                {
+                    "AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db"),
+                    "CONVERSATION_DB": os.path.join(directory, "conversations.db"),
+                },
+            ),
+            patch("app.agents.execution.build_graph", side_effect=build_graph),
+            patch("app.agents.service.build_graph", side_effect=build_graph),
+            patch("app.agents.service.LLM", return_value=object()),
+            patch("app.agents.execution.logger.exception"),
+        ):
+            service = AgentTaskService()
+            conversation_id = create_conversation()["id"]
+            execution_id, _ = service.create_routed_run("原始问题", conversation_id)
+            _, status = service.run_existing(
+                execution_id, "改写问题", ["一步"], llm=object()
+            )
+            self.assertEqual(502, status)
+            with (
+                patch(
+                    "app.agents.execution.append_exchange",
+                    side_effect=RuntimeError("写入失败"),
+                ),
+                patch("app.agents.service.logger.exception"),
+            ):
+                self.assertEqual(200, service.resume(execution_id)[1])
+            with open_checkpointer() as checkpointer:
+                self.assertEqual(
+                    "completed", get_run(checkpointer, execution_id)["status"]
+                )
+            for _ in range(2):
+                body, status = service.resume(execution_id)
+                self.assertEqual(200, status)
+                self.assertEqual(conversation_id, body["data"]["conversation_id"])
+            messages = get_conversation(conversation_id)["messages"]
+            self.assertEqual(
+                ["原始问题", "新旧制度差异已整理。"], [m["content"] for m in messages]
+            )
+            self.assertEqual(execution_id, messages[-1]["result"]["execution_id"])
+
+    def test_recovery_only_runs_explicitly_and_submission_failure_is_compensated(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict(
+                os.environ, {"AGENT_CHECKPOINT_DB": os.path.join(directory, "agent.db")}
+            ),
+        ):
+            service = AgentTaskService()
+            service._create_run(
+                "00000000-0000-0000-0000-000000000003", "任务", ["一步"]
+            )
+            self.assertEqual(
+                "running",
+                AgentTaskService().get_status("00000000-0000-0000-0000-000000000003")[
+                    0
+                ]["data"]["status"],
+            )
+            self.assertEqual(1, recover_interrupted_runs())
+            progress = service.get_status("00000000-0000-0000-0000-000000000003")[0][
+                "data"
+            ]
+            self.assertEqual("failed", progress["status"])
+            self.assertEqual("agent_interrupted", progress["error_code"])
+            self.assertEqual(0, recover_interrupted_runs())
+            with (
+                patch(
+                    "app.agents.service.submit_task",
+                    side_effect=RuntimeError("提交失败"),
+                ),
+                patch("app.agents.service.logger.exception"),
+            ):
+                with patch(
+                    "app.agents.service.uuid4",
+                    return_value="00000000-0000-0000-0000-000000000004",
+                ):
+                    self.assertEqual(500, service.start("任务", ["一步"])[1])
+            progress = service.get_status("00000000-0000-0000-0000-000000000004")[0][
+                "data"
+            ]
+            self.assertEqual("failed", progress["status"])
+            self.assertEqual("agent_submission_failed", progress["error_code"])
 
     def test_search_tool_input_is_bounded(self):
         SearchKnowledgeInput(query="费用报销", top_k=4)

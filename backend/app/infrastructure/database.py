@@ -31,6 +31,7 @@ _TABLES = {
 }
 _LEGACY_COLUMNS = {
     "conversations": ("summary", "summarized_through"),
+    "conversation_messages": ("execution_id",),
     "agent_runs": (
         "progress_json",
         "mode",
@@ -65,15 +66,11 @@ class Database:
             tables = _TABLES[name]
             Base.metadata.create_all(connection, tables=tables)
             for table in tables:
-                for index in table.indexes:
-                    index.create(connection, checkfirst=True)
-                if table.name not in _LEGACY_COLUMNS:
-                    continue
                 columns = {
                     column["name"]
                     for column in inspect(connection).get_columns(table.name)
                 }
-                for column_name in _LEGACY_COLUMNS[table.name]:
+                for column_name in _LEGACY_COLUMNS.get(table.name, ()):
                     if column_name not in columns:
                         definition = CreateColumn(table.c[column_name]).compile(
                             dialect=connection.dialect
@@ -81,6 +78,8 @@ class Database:
                         connection.exec_driver_sql(
                             f"ALTER TABLE {table.name} ADD COLUMN {definition}"
                         )
+                for index in table.indexes:
+                    index.create(connection, checkfirst=True)
             if AgentRun.__table__ in tables:
                 connection.execute(
                     update(AgentRun)

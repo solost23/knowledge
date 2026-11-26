@@ -39,6 +39,26 @@ class AskServiceTestCase(unittest.TestCase):
         self.addCleanup(self.database_env.stop)
         self.addCleanup(self.temp_directory.cleanup)
 
+    def test_background_submission_failure_marks_created_run_failed(self):
+        execution_id = str(uuid4())
+        with (
+            patch("app.agents.service.uuid4", return_value=execution_id),
+            patch(
+                "app.agents.ask_service.submit_task",
+                side_effect=RuntimeError("提交失败"),
+            ),
+            patch("app.agents.ask_service.logger.exception"),
+        ):
+            self.assertEqual(500, AskService().start("问题")[1])
+        body, status = AgentTaskService().get_status(execution_id)
+        self.assertEqual(200, status)
+        self.assertEqual("failed", body["data"]["status"])
+        self.assertEqual("ask_submission_failed", body["data"]["error_code"])
+        self.assertEqual("failed", body["data"]["result"]["status"])
+        self.assertEqual(
+            body["data"]["finished_at"], body["data"]["result"]["finished_at"]
+        )
+
     def test_client_cannot_choose_routing_mode(self):
         with self.assertRaises(ValidationError):
             AskRequest.model_validate({"task": "比较两份制度", "mode": "rag"})

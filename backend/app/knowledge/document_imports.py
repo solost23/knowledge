@@ -5,6 +5,7 @@ from loguru import logger
 from werkzeug.datastructures import FileStorage
 
 from app.infrastructure import submit_task
+from app.infrastructure.document_repository import begin_document
 from app.infrastructure.document_upload_repository import (
     create_upload_job,
     get_upload_job,
@@ -27,7 +28,15 @@ class DocumentImportService:
             file.save(file_path)
             job = create_upload_job(job_id, filename)
             job_created = True
-            submit_task("document_import", self._process, job_id, filename, file_path)
+            publication = begin_document(filename)
+            submit_task(
+                "document_import",
+                self._process,
+                job_id,
+                filename,
+                file_path,
+                publication,
+            )
             return job
         except Exception as error:
             if job_created:
@@ -47,19 +56,25 @@ class DocumentImportService:
     def get(self, job_id: str) -> dict | None:
         return get_upload_job(job_id)
 
-    def _process(self, job_id: str, filename: str, file_path: str) -> None:
-        update_upload_job(
-            job_id,
-            status="processing",
-            progress=1,
-            stage="准备解析文档",
-        )
-
+    def _process(
+        self,
+        job_id: str,
+        filename: str,
+        file_path: str,
+        publication: tuple[str, int] | None = None,
+    ) -> None:
         try:
+            update_upload_job(
+                job_id,
+                status="processing",
+                progress=1,
+                stage="准备解析文档",
+            )
             result, status_code = self.document_service.doc(
                 file_path,
                 filename,
                 upload_job_id=job_id,
+                publication=publication,
             )
             if status_code != 200 or not result.get("success"):
                 raise RuntimeError(result.get("message", "文档导入失败"))

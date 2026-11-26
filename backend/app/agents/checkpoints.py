@@ -150,9 +150,11 @@ def set_run_mode(
 def set_run_status(checkpointer, execution_id: str, status: str, error_code=None):
     with _session(checkpointer) as session:
         run = session.get(AgentRun, execution_id)
-        if run is None:
+        if run is None or run.status in ("completed", "cancelled"):
             return
         run.status = status
+        if status == "running":
+            run.result_json = None
         run.error_code = error_code
         run.finished_at = (
             _now() if status in ("completed", "failed", "cancelled") else None
@@ -164,7 +166,13 @@ def set_run_status(checkpointer, execution_id: str, status: str, error_code=None
 
 
 def finish_run(
-    checkpointer, execution_id: str, status: str, error_code=None, respect_cancel=False
+    checkpointer,
+    execution_id: str,
+    status: str,
+    error_code=None,
+    respect_cancel=False,
+    result: dict | None = None,
+    progress: dict | None = None,
 ) -> bool:
     finished_at = _now()
     with _session(checkpointer) as session:
@@ -176,16 +184,25 @@ def finish_run(
         )
         if respect_cancel:
             statement = statement.where(AgentRun.cancel_requested == 0)
-        result = session.execute(
-            statement.values(
+        values = {
+            "status": status,
+            "error_code": error_code,
+            "finished_at": finished_at,
+            "duration_ms": _duration_ms(started_at, finished_at),
+            "updated_at": func.datetime("now"),
+        }
+        if result is not None:
+            result.update(
                 status=status,
-                error_code=error_code,
+                started_at=started_at,
                 finished_at=finished_at,
-                duration_ms=_duration_ms(started_at, finished_at),
-                updated_at=func.datetime("now"),
+                duration_ms=values["duration_ms"],
             )
-        )
-        return result.rowcount == 1
+            values["result_json"] = json.dumps(result, ensure_ascii=False)
+        if progress is not None:
+            values["progress_json"] = json.dumps(progress, ensure_ascii=False)
+        changed = session.execute(statement.values(**values))
+        return changed.rowcount == 1
 
 
 def save_run_result(checkpointer, execution_id: str, result: dict):
@@ -251,6 +268,49 @@ def update_run_progress(
         current.update(progress)
         run.progress_json = json.dumps(current, ensure_ascii=False)
         run.updated_at = func.datetime("now")
+
+
+def terminal_exchange_runs() -> list[dict]:
+    with open_checkpointer() as checkpointer:
+        with _session(checkpointer) as session:
+            execution_ids = list(
+                session.scalars(
+                    select(AgentRun.execution_id).where(
+                        AgentRun.status.in_(("completed", "failed", "cancelled")),
+                        AgentRun.conversation_id.is_not(None),
+                        AgentRun.result_json.is_not(None),
+                    )
+                )
+            )
+        return [get_run(checkpointer, execution_id) for execution_id in execution_ids]
+
+
+def recover_interrupted_runs() -> int:
+    """仅在进程启动时调用，不在服务构造或状态读取时执行。"""
+    count = 0
+    with open_checkpointer() as checkpointer:
+        with _session(checkpointer) as session:
+            runs = session.scalars(select(AgentRun).where(AgentRun.status == "running"))
+            for run in runs:
+                run.status = "failed"
+                run.error_code = "agent_interrupted"
+                run.finished_at = _now()
+                run.duration_ms = _duration_ms(run.started_at, run.finished_at)
+                run.cancel_requested = 0
+                run.result_json = None
+                try:
+                    progress = json.loads(run.progress_json)
+                except (TypeError, ValueError):
+                    progress = {}
+                progress.update(
+                    stage="failed",
+                    active_step=None,
+                    current_action="服务重启导致任务中断，可尝试恢复",
+                )
+                run.progress_json = json.dumps(progress, ensure_ascii=False)
+                run.updated_at = func.datetime("now")
+                count += 1
+    return count
 
 
 def checkpoint_values(checkpointer, execution_id: str) -> dict:

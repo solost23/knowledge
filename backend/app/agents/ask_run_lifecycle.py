@@ -8,7 +8,6 @@ from app.agents.checkpoints import (
     run_cancel_requested,
     save_run_result,
     set_run_mode,
-    set_run_status,
     update_run_progress,
 )
 from app.agents.dispatcher import RequestRoute
@@ -63,16 +62,11 @@ class AskRunLifecycle:
         answer_data: dict,
     ) -> dict:
         with open_checkpointer() as checkpointer:
-            if not finish_run(
-                checkpointer, execution_id, "completed", respect_cancel=True
-            ):
-                raise AgentRunCancelled(execution_id)
-            update_run_progress(
-                checkpointer,
-                execution_id,
-                {"stage": "completed", "current_action": "检索与回答已完成"},
-            )
             run = get_run(checkpointer, execution_id)
+            if run["status"] == "completed":
+                result = run["result"]
+                cls.save_exchange(conversation_id, task, result)
+                return result
             result = {
                 "execution_id": execution_id,
                 "status": "completed",
@@ -89,7 +83,25 @@ class AskRunLifecycle:
                 "finished_at": run["finished_at"],
                 "duration_ms": run["duration_ms"],
             }
-            save_run_result(checkpointer, execution_id, result)
+            if not finish_run(
+                checkpointer,
+                execution_id,
+                "completed",
+                respect_cancel=True,
+                result=result,
+                progress={
+                    "stage": "completed",
+                    "active_step": None,
+                    "current_action": "检索与回答已完成",
+                },
+            ):
+                current = get_run(checkpointer, execution_id)
+                if current["status"] == "completed":
+                    result = current["result"]
+                elif current["cancel_requested"] or current["status"] == "cancelled":
+                    raise AgentRunCancelled(execution_id)
+                else:
+                    raise RuntimeError("执行记录不处于可完成状态")
         cls.save_exchange(conversation_id, task, result)
         return result
 
@@ -108,7 +120,9 @@ class AskRunLifecycle:
             }
         )
         with open_checkpointer() as checkpointer:
-            save_run_result(checkpointer, execution_id, result_data)
+            run = get_run(checkpointer, execution_id)
+            if not run.get("result"):
+                save_run_result(checkpointer, execution_id, result_data)
 
     @staticmethod
     def save_exchange(conversation_id: str, task: str, result: dict) -> None:
@@ -125,17 +139,9 @@ class AskRunLifecycle:
         cls, execution_id: str, task: str, conversation_id: str
     ) -> dict:
         with open_checkpointer() as checkpointer:
-            set_run_status(checkpointer, execution_id, "cancelled")
-            update_run_progress(
-                checkpointer,
-                execution_id,
-                {
-                    "stage": "cancelled",
-                    "active_step": None,
-                    "current_action": "任务已停止",
-                },
-            )
             run = get_run(checkpointer, execution_id)
+            if run["status"] in ("completed", "cancelled"):
+                return run["result"]
             result = {
                 "execution_id": execution_id,
                 "status": "cancelled",
@@ -152,7 +158,19 @@ class AskRunLifecycle:
                 "finished_at": run["finished_at"],
                 "duration_ms": run["duration_ms"],
             }
-            save_run_result(checkpointer, execution_id, result)
+            if not finish_run(
+                checkpointer,
+                execution_id,
+                "cancelled",
+                result=result,
+                progress={
+                    **run["progress"],
+                    "stage": "cancelled",
+                    "active_step": None,
+                    "current_action": "任务已停止",
+                },
+            ):
+                return get_run(checkpointer, execution_id)["result"]
         cls.save_exchange(conversation_id, task, result)
         clear_run_cancel(execution_id)
         return result
@@ -160,18 +178,10 @@ class AskRunLifecycle:
     @staticmethod
     def fail(execution_id: str, error_code: str, error_message: str) -> dict:
         with open_checkpointer() as checkpointer:
-            set_run_status(checkpointer, execution_id, "failed", error_code)
-            update_run_progress(
-                checkpointer,
-                execution_id,
-                {
-                    "stage": "failed",
-                    "active_step": None,
-                    "current_action": error_message,
-                    "error_message": error_message,
-                },
-            )
-            run = get_run(checkpointer, execution_id)
+            existing = get_run(checkpointer, execution_id)
+            if existing["status"] in ("completed", "cancelled"):
+                return existing["result"]
+            run = existing
             result = {
                 "execution_id": execution_id,
                 "status": "failed",
@@ -185,5 +195,19 @@ class AskRunLifecycle:
                 "finished_at": run["finished_at"],
                 "duration_ms": run["duration_ms"],
             }
-            save_run_result(checkpointer, execution_id, result)
+            if not finish_run(
+                checkpointer,
+                execution_id,
+                "failed",
+                error_code,
+                result=result,
+                progress={
+                    **run["progress"],
+                    "stage": "failed",
+                    "active_step": None,
+                    "current_action": error_message,
+                    "error_message": error_message,
+                },
+            ):
+                return get_run(checkpointer, execution_id)["result"]
             return result

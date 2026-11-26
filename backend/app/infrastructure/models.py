@@ -61,6 +61,7 @@ class ConversationMessage(Base):
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')"),
         Index("idx_conversation_messages_conversation", "conversation_id", "id"),
+        Index("idx_conversation_messages_execution", "execution_id", unique=True),
         {"sqlite_autoincrement": True},
     )
 
@@ -68,6 +69,7 @@ class ConversationMessage(Base):
     conversation_id: Mapped[str] = mapped_column(
         Text, ForeignKey("conversations.id", ondelete="CASCADE")
     )
+    execution_id: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
     result_json: Mapped[str | None] = mapped_column(Text)

@@ -11,10 +11,12 @@ from app.core import response
 from app.core.settings import config
 from app.infrastructure import get_chroma
 from app.infrastructure.document_repository import (
+    begin_document,
     delete_doc,
-    exists_doc,
-    insert_doc,
+    document_lock,
     list_docs,
+    publish_document,
+    visible_documents,
 )
 from app.infrastructure.document_upload_repository import update_upload_progress
 from app.knowledge.loaders import load_file
@@ -45,7 +47,9 @@ class DocumentService:
         file_path: str,
         original_name: str,
         upload_job_id: str | None = None,
+        publication: tuple[str, int] | None = None,
     ) -> str:
+        version, generation = publication or begin_document(original_name)
         update_upload_progress(upload_job_id, 5, "正在提取文档文本")
         try:
             docs = load_file(file_path)
@@ -66,6 +70,8 @@ class DocumentService:
 
         for text in texts:
             text.metadata["source"] = original_name
+            text.metadata["document_version"] = version
+            text.metadata["publication_managed"] = True
             if upload_job_id:
                 text.metadata["upload_job_id"] = upload_job_id
 
@@ -73,13 +79,17 @@ class DocumentService:
             upload_job_id, 38, f"文本切分完成，共 {len(texts)} 个片段"
         )
         chroma_config = config.chroma
-        existing = exists_doc(original_name)
         store = get_chroma()
-        old_ids = (
-            store.db.get(where={"source": original_name}).get("ids", [])
-            if existing
-            else []
-        )
+        with document_lock:
+            previous_version = visible_documents().get(original_name)
+            previous = store.db.get(where={"source": original_name})
+            old_ids = [
+                chunk_id
+                for chunk_id, metadata in zip(
+                    previous.get("ids", []), previous.get("metadatas", []), strict=True
+                )
+                if (metadata or {}).get("document_version") == previous_version
+            ]
         added_ids: list[str] = []
         batch_size = max(1, int(chroma_config.get("import_batch_size", 256)))
 
@@ -100,11 +110,8 @@ class DocumentService:
                     f"正在生成并写入向量（{completed}/{len(texts)} 个片段）",
                 )
 
-            if old_ids:
-                store.db.delete(ids=old_ids)
-            if existing:
-                delete_doc(original_name)
-            insert_doc(original_name)
+            update_upload_progress(upload_job_id, 98, "正在保存文档索引记录")
+            publish_document(original_name, version, generation)
         except Exception:
             if added_ids:
                 try:
@@ -113,30 +120,48 @@ class DocumentService:
                     logger.exception("向量写入失败后的回滚清理也失败")
             raise
 
-        update_upload_progress(upload_job_id, 98, "正在保存文档索引记录")
+        # 发布后的旧向量清理失败不回滚已提交的文档，新版本仍然可检索。
+        if old_ids:
+            try:
+                store.db.delete(ids=old_ids)
+            except Exception:
+                logger.exception("已发布文档的旧向量清理失败")
 
         return response.success("成功", None)
 
     def discard_upload_job(self, upload_job_id: str, original_name: str) -> None:
         store = get_chroma()
-        ids = store.db.get(where={"upload_job_id": upload_job_id}).get("ids", [])
-        if ids:
-            store.db.delete(ids=ids)
-        remaining = store.db.get(where={"source": original_name}).get("ids", [])
-        if not remaining:
-            delete_doc(original_name)
+        with document_lock:
+            visible = visible_documents()
+            chunks = store.db.get(where={"upload_job_id": upload_job_id})
+            ids = [
+                chunk_id
+                for chunk_id, metadata in zip(
+                    chunks.get("ids", []), chunks.get("metadatas", []), strict=True
+                )
+                if original_name not in visible
+                or (metadata or {}).get("document_version") != visible[original_name]
+            ]
+            if ids:
+                store.db.delete(ids=ids)
 
     def list(self) -> str:
         return response.success("成功", list_docs())
 
     def delete(self, name: str) -> str:
-        store = get_chroma()
-        results = store.db.get(where={"source": name})
-        ids = results.get("ids", [])
-        if ids:
-            store.db.delete(ids=ids)
+        with document_lock:
+            # 先撤销可见性和待发布令牌，物理清理失败也不会复活文档。
+            deleted = delete_doc(name)
+            try:
+                store = get_chroma()
+                results = store.db.get(where={"source": name})
+                ids = results.get("ids", [])
+                if ids:
+                    store.db.delete(ids=ids)
+            except Exception:
+                logger.exception("已删除文档的向量清理失败")
 
-        if not delete_doc(name):
+        if not deleted:
             return response.error(404, f"笔记 {name} 不存在")
 
         return response.success("成功", None)

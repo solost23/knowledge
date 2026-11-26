@@ -7,17 +7,18 @@ The evaluation documents must already be uploaded to the configured knowledge ba
 
 import argparse
 import json
-import os
 import re
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+EVAL_DIR = Path(__file__).resolve().parent
+ROOT = EVAL_DIR.parent
+sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(ROOT, ".env"))
+load_dotenv(ROOT / ".env")
 
 from app.agents.ask_service import AskService
 from evals.agent_metrics import score_agent_rows
@@ -124,30 +125,36 @@ def run(questions: list[dict], service=None) -> tuple[dict, list[dict]]:
     return summary, rows
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--questions", default=os.path.join(ROOT, "eval", "agent_questions.jsonl")
+        "--questions", type=Path, default=EVAL_DIR / "agent_questions.jsonl"
     )
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--tag", default="")
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
+    tag = _safe_tag(args.tag or datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+    report_dir = EVAL_DIR / "reports"
+    json_path = report_dir / f"agent_{tag}.json"
+    markdown_path = report_dir / f"agent_{tag}.md"
+    if json_path.exists() or markdown_path.exists():
+        raise FileExistsError(f"评测报告已存在，请使用新的 tag：{tag}")
 
     questions = load_questions(args.questions)
     if args.limit:
         questions = questions[: args.limit]
     summary, rows = run(questions)
     summary["created_at"] = datetime.now(UTC).isoformat()
-    tag = _safe_tag(args.tag or datetime.now().strftime("%Y%m%d_%H%M%S"))
-    report_dir = os.path.join(ROOT, "eval", "reports")
-    os.makedirs(report_dir, exist_ok=True)
-    json_path = os.path.join(report_dir, f"agent_{tag}.json")
-    markdown_path = os.path.join(report_dir, f"agent_{tag}.md")
-    with open(json_path, "w", encoding="utf-8") as file:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    with open(json_path, "x", encoding="utf-8") as file:
         json.dump(
             {"summary": summary, "rows": rows}, file, ensure_ascii=False, indent=2
         )
-    with open(markdown_path, "w", encoding="utf-8") as file:
+    with open(markdown_path, "x", encoding="utf-8") as file:
         file.write(_render_report(summary, rows))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"reports: {json_path}, {markdown_path}")

@@ -175,6 +175,46 @@ def append_exchange(
     with get_database("conversations").session() as session:
         if session.get(Conversation, conversation_id) is None:
             raise KeyError(conversation_id)
+        # 先取得写锁，避免并发恢复重复写入同一轮问答。
+        session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(updated_at=Conversation.updated_at)
+        )
+        execution_id = result.get("execution_id")
+        if execution_id:
+            existing = session.scalar(
+                select(ConversationMessage).where(
+                    ConversationMessage.execution_id == execution_id
+                )
+            )
+            if existing is not None:
+                if result.get("status") == "completed":
+                    existing.content = answer
+                    existing.result_json = json.dumps(result, ensure_ascii=False)
+                return
+            legacy_messages = session.scalars(
+                select(ConversationMessage).where(
+                    ConversationMessage.conversation_id == conversation_id,
+                    ConversationMessage.role == "assistant",
+                    ConversationMessage.execution_id.is_(None),
+                    ConversationMessage.result_json.is_not(None),
+                )
+            )
+            for message in legacy_messages:
+                try:
+                    legacy_result = json.loads(message.result_json)
+                except (TypeError, ValueError):
+                    continue
+                if (
+                    isinstance(legacy_result, dict)
+                    and legacy_result.get("execution_id") == execution_id
+                ):
+                    message.execution_id = execution_id
+                    if result.get("status") == "completed":
+                        message.content = answer
+                        message.result_json = json.dumps(result, ensure_ascii=False)
+                    return
         session.add_all(
             [
                 ConversationMessage(
@@ -183,6 +223,7 @@ def append_exchange(
                 ConversationMessage(
                     conversation_id=conversation_id,
                     role="assistant",
+                    execution_id=execution_id,
                     content=answer,
                     result_json=json.dumps(result, ensure_ascii=False),
                 ),

@@ -1,12 +1,14 @@
 import json
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import before_model, wrap_tool_call
 from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.checkpoints import update_run_progress
+from app.agents.checkpoints import run_cancel_requested, update_run_progress
 from app.agents.state import (
     MAX_STEP_LENGTH,
+    AgentRunCancelled,
     AgentState,
     TaskPlan,
 )
@@ -179,11 +181,27 @@ def compile_graph(
 
 
 def build_graph(llm, checkpointer=None, execution_id: str | None = None):
+    def ensure_active():
+        if execution_id and run_cancel_requested(checkpointer, execution_id):
+            raise AgentRunCancelled(execution_id)
+
+    @before_model
+    def check_model_cancel(state, runtime):
+        ensure_active()
+
+    @wrap_tool_call
+    def check_tool_cancel(request, handler):
+        ensure_active()
+        result = handler(request)
+        ensure_active()
+        return result
+
     planner = llm.with_structured_output(TaskPlan, method="function_calling")
     executor = create_agent(
         llm,
         tools=[search_knowledge, list_knowledge_documents],
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
+        middleware=[check_model_cancel, check_tool_cancel],
     )
     return compile_graph(
         planner,

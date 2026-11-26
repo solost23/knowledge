@@ -56,7 +56,7 @@ function formatDate(value: string) {
       <section class="details-section knowledge-section">
         <div class="panel-heading">
           <div><span class="panel-kicker">资料空间</span><h2>知识库</h2></div>
-          <button class="icon-button" title="添加文档" aria-label="添加文档" @click="emit('pickFiles')"><Plus :size="17" /></button>
+          <button class="icon-button" :disabled="uploading" title="添加文档" aria-label="添加文档" @click="emit('pickFiles')"><Plus :size="17" /></button>
         </div>
         <div class="doc-summary">
           <div class="summary-icon"><BookOpen :size="16" /></div>

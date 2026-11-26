@@ -9,12 +9,12 @@ from app.agents.checkpoints import (
     open_checkpointer,
     run_config,
     save_run_result,
-    set_run_status,
-    update_run_progress,
+    terminal_exchange_runs,
 )
 from app.agents.graph import build_graph
 from app.agents.state import AgentRunBusy, AgentRunCancelled, InvalidAgentRequest
 from app.core import response
+from app.infrastructure.conversation_repository import append_exchange
 from app.infrastructure.llm import LLM, LLMConfigurationError
 
 
@@ -40,6 +40,80 @@ def run_metadata(run: dict) -> dict:
         "finished_at": run.get("finished_at"),
         "duration_ms": run.get("duration_ms", 0),
     }
+
+
+def recover_pending_exchanges() -> int:
+    """持久化终态结果兼作 outbox，启动时幂等补写跨库会话。"""
+    recovered = 0
+    for run in terminal_exchange_runs():
+        result = run.get("result")
+        if not isinstance(result, dict) or not result:
+            continue
+        try:
+            append_exchange(
+                run["conversation_id"],
+                run["task"],
+                result.get("answer")
+                or (
+                    "任务已停止"
+                    if run["status"] == "cancelled"
+                    else result.get("error_message", "")
+                ),
+                {**result, "execution_id": run["execution_id"]},
+            )
+            recovered += 1
+        except KeyError:
+            # 用户删除的会话不重建，也不阻止其他待补写记录。
+            continue
+        except Exception:
+            logger.exception("补写执行结果到会话失败，保留结果供下次启动重试")
+    return recovered
+
+
+def persist_completed(checkpointer, execution_id: str, state: dict) -> dict:
+    run = get_run(checkpointer, execution_id)
+    if run["status"] == "completed":
+        result = run.get("result") or {
+            **run_result(execution_id, state),
+            **run_metadata(run),
+        }
+        if not run.get("result"):
+            save_run_result(checkpointer, execution_id, result)
+    else:
+        result = {**run_result(execution_id, state), **run_metadata(run)}
+        if not finish_run(
+            checkpointer,
+            execution_id,
+            "completed",
+            respect_cancel=True,
+            result=result,
+            progress={
+                "stage": "completed",
+                "plan": state.get("plan", []),
+                "current_step": len(state.get("plan", [])),
+                "active_step": None,
+                "steps": state.get("steps", []),
+                "current_action": "任务执行完成",
+            },
+        ):
+            current = get_run(checkpointer, execution_id)
+            if current["status"] == "completed":
+                result = current.get("result") or result
+            elif current["cancel_requested"] or current["status"] == "cancelled":
+                raise AgentRunCancelled(execution_id)
+            else:
+                raise RuntimeError("执行记录不处于可完成状态")
+    if run["conversation_id"]:
+        try:
+            append_exchange(
+                run["conversation_id"], run["task"], result.get("answer", ""), result
+            )
+        except KeyError:
+            pass
+        except Exception:
+            # 执行结果已提交；恢复请求可以幂等补写另一个数据库中的会话。
+            logger.exception("保存已完成任务的会话失败，可通过恢复请求重试")
+    return result
 
 
 def run_created(
@@ -73,24 +147,7 @@ def run_created(
                         recursion_limit=max(recursion_limit, len(plan) * 3 + 10),
                     ),
                 )
-            if not finish_run(
-                checkpointer, execution_id, "completed", respect_cancel=True
-            ):
-                raise AgentRunCancelled(execution_id)
-            update_run_progress(
-                checkpointer,
-                execution_id,
-                {
-                    "stage": "completed",
-                    "current_step": len(state.get("plan", [])),
-                    "active_step": None,
-                    "steps": state.get("steps", []),
-                    "current_action": "任务执行完成",
-                },
-            )
-            result = run_result(execution_id, state)
-            result.update(run_metadata(get_run(checkpointer, execution_id)))
-            save_run_result(checkpointer, execution_id, result)
+                result = persist_completed(checkpointer, execution_id, state)
         _notify_completion(on_complete, result, "保存 Agent 执行结果失败")
         return response.success("任务完成", result)
     except AgentRunCancelled:
@@ -156,17 +213,9 @@ def _notify_completion(callback, result, failure_message):
 def _save_cancelled_result(execution_id: str):
     try:
         with open_checkpointer() as checkpointer:
-            set_run_status(checkpointer, execution_id, "cancelled")
-            update_run_progress(
-                checkpointer,
-                execution_id,
-                {
-                    "stage": "cancelled",
-                    "active_step": None,
-                    "current_action": "任务已停止",
-                },
-            )
             run = get_run(checkpointer, execution_id)
+            if run["status"] in ("completed", "cancelled"):
+                return run.get("result")
             values = checkpoint_values(checkpointer, execution_id)
             result = {
                 "execution_id": execution_id,
@@ -179,7 +228,25 @@ def _save_cancelled_result(execution_id: str):
                 "sources": values.get("sources", []),
                 **run_metadata(run),
             }
-            save_run_result(checkpointer, execution_id, result)
+            progress = {
+                **run["progress"],
+                "stage": "cancelled",
+                "active_step": None,
+                "current_action": "任务已停止",
+            }
+            if not finish_run(
+                checkpointer,
+                execution_id,
+                "cancelled",
+                result=result,
+                progress=progress,
+            ):
+                return get_run(checkpointer, execution_id).get("result")
+            clear_run_cancel(execution_id)
+            if run["conversation_id"]:
+                append_exchange(
+                    run["conversation_id"], run["task"], "任务已停止", result
+                )
             return result
     except Exception:
         logger.exception("保存 Agent 取消状态时出错")
@@ -196,19 +263,30 @@ def _mark_failed(
     resumable = False
     try:
         with open_checkpointer() as checkpointer:
-            if only_if_exists and not get_run(checkpointer, execution_id):
+            run = get_run(checkpointer, execution_id)
+            if run is None or run["status"] in ("completed", "cancelled"):
                 return False
-            set_run_status(checkpointer, execution_id, "failed", error_code)
-            update_run_progress(
+            resumable = bool(checkpoint_values(checkpointer, execution_id))
+            finish_run(
                 checkpointer,
                 execution_id,
-                {
+                "failed",
+                error_code,
+                result={
+                    "execution_id": execution_id,
+                    "task": run["task"],
+                    "error_code": error_code,
+                    "error_message": current_action,
+                    "resumable": resumable,
+                    **run_metadata(run),
+                },
+                progress={
+                    **run["progress"],
                     "stage": "failed",
                     "active_step": None,
                     "current_action": current_action,
                 },
             )
-            resumable = bool(checkpoint_values(checkpointer, execution_id))
     except Exception:
         logger.exception(failure_message)
     return resumable

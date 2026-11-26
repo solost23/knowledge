@@ -4,6 +4,7 @@ from pathlib import Path
 from langchain_chroma import Chroma
 
 from app.core.settings import BACKEND_DIR, config
+from app.infrastructure.document_repository import document_lock, visible_documents
 from app.infrastructure.embeddings import FastEmbeddings
 
 
@@ -24,12 +25,42 @@ class ChromaDB:
         )
 
     def search(self, query: str, k: int | None = None):
-        """Return only chunks whose vector relevance clears the configured threshold."""
-        return self.db.similarity_search_with_relevance_scores(
-            query,
-            k=k or self.top_k,
-            score_threshold=self.relevance_threshold,
-        )
+        """只返回 SQLite 已发布版本，兼容没有版本元数据的历史片段。"""
+        with document_lock:
+            visible = visible_documents()
+            if not visible:
+                return []
+            versions = [version for version in visible.values() if version is not None]
+            legacy_names = [
+                name for name, version in visible.items() if version is None
+            ]
+            filters = []
+            if versions:
+                filters.append({"document_version": {"$in": versions}})
+            if legacy_names:
+                filters.append(
+                    {
+                        "$and": [
+                            {"source": {"$in": legacy_names}},
+                            {"publication_managed": {"$ne": True}},
+                        ]
+                    }
+                )
+            where = filters[0] if len(filters) == 1 else {"$or": filters}
+            matches = self.db.similarity_search_with_relevance_scores(
+                query,
+                k=k or self.top_k,
+                score_threshold=self.relevance_threshold,
+                filter=where,
+            )
+            # 兼容手动构造的历史数据，带非当前版本的片段不能返回给调用方。
+            return [
+                (document, score)
+                for document, score in matches
+                if document.metadata.get("source") in visible
+                and document.metadata.get("document_version")
+                == visible[document.metadata["source"]]
+            ]
 
 
 @lru_cache(maxsize=1)

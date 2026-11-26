@@ -15,13 +15,16 @@ from app.agents.checkpoints import (
     update_run_progress,
 )
 from app.agents.execution import (
+    _mark_failed,
+    _save_cancelled_result,
+    persist_completed,
     run_created,
     run_metadata,
-    run_result,
 )
 from app.agents.graph import build_graph
 from app.agents.state import (
     AgentRunBusy,
+    AgentRunCancelled,
     InvalidAgentRequest,
 )
 from app.agents.validation import validate_execution_id, validate_plan, validate_task
@@ -34,12 +37,6 @@ from app.infrastructure.llm import LLM, LLMConfigurationError
 _validate_execution_id = validate_execution_id
 _validate_plan = validate_plan
 _validate_task = validate_task
-
-
-def _is_completed(state: dict) -> bool:
-    return bool(state.get("answer")) and state.get("current_step", 0) >= len(
-        state.get("plan", [])
-    )
 
 
 class AgentTaskService:
@@ -140,15 +137,24 @@ class AgentTaskService:
                 raise InvalidAgentRequest("Agent 执行计划不能为空")
             execution_id = str(uuid4())
             self._create_run(execution_id, task, plan)
-            submit_task(
-                "agent",
-                self._run_created,
-                execution_id,
-                task,
-                plan,
-                llm,
-                on_complete,
-            )
+            try:
+                submit_task(
+                    "agent",
+                    self._run_created,
+                    execution_id,
+                    task,
+                    plan,
+                    llm,
+                    on_complete,
+                )
+            except Exception:
+                _mark_failed(
+                    execution_id,
+                    "agent_submission_failed",
+                    "后台任务提交失败",
+                    "保存后台任务提交失败状态时出错",
+                )
+                raise
             body, _ = response.success(
                 "Agent 任务已启动",
                 {
@@ -182,26 +188,15 @@ class AgentTaskService:
     def resume(self, execution_id: str):
         try:
             execution_id = validate_execution_id(execution_id)
-            with open_checkpointer() as checkpointer:
+            with claim_execution(execution_id), open_checkpointer() as checkpointer:
                 run = get_run(checkpointer, execution_id)
                 if run is None:
                     return response.error(404, "未找到该 Agent 执行记录")
                 values = checkpoint_values(checkpointer, execution_id)
-                if run["status"] == "completed" or _is_completed(values):
-                    set_run_status(checkpointer, execution_id, "completed")
-                    update_run_progress(
-                        checkpointer,
-                        execution_id,
-                        {
-                            "stage": "completed",
-                            "current_step": len(values.get("plan", [])),
-                            "active_step": None,
-                            "steps": values.get("steps", []),
-                            "current_action": "任务执行完成",
-                        },
-                    )
+                if run["status"] == "completed":
                     return response.success(
-                        "任务已完成", run_result(execution_id, values)
+                        "任务已完成",
+                        persist_completed(checkpointer, execution_id, values),
                     )
                 if run["status"] not in ("failed", "running") or not values:
                     return response.error(409, "该执行记录当前不可恢复")
@@ -222,47 +217,34 @@ class AgentTaskService:
                     checkpointer,
                     execution_id=execution_id,
                 )
-                with claim_execution(execution_id):
-                    state = graph.invoke(None, config=run_config(execution_id))
-                set_run_status(checkpointer, execution_id, "completed")
-                update_run_progress(
-                    checkpointer,
-                    execution_id,
-                    {
-                        "stage": "completed",
-                        "current_step": len(state.get("plan", [])),
-                        "active_step": None,
-                        "steps": state.get("steps", []),
-                        "current_action": "任务执行完成",
-                    },
+                state = graph.invoke(
+                    None,
+                    config=run_config(
+                        execution_id,
+                        recursion_limit=max(
+                            run_config(execution_id)["recursion_limit"],
+                            len(values.get("plan", [])) * 3 + 10,
+                        ),
+                    ),
                 )
-                return response.success("任务恢复完成", run_result(execution_id, state))
+                return response.success(
+                    "任务恢复完成", persist_completed(checkpointer, execution_id, state)
+                )
         except InvalidAgentRequest as error:
             return response.error(400, str(error))
         except AgentRunBusy:
             return response.error(409, "该 Agent 任务正在执行")
+        except AgentRunCancelled:
+            result = _save_cancelled_result(execution_id)
+            return response.success("任务已停止", result)
         except LLMConfigurationError as error:
             logger.error(f"Agent LLM 配置错误: {error}")
-            try:
-                with open_checkpointer() as checkpointer:
-                    if get_run(checkpointer, execution_id):
-                        set_run_status(
-                            checkpointer,
-                            execution_id,
-                            "failed",
-                            "agent_configuration_error",
-                        )
-                        update_run_progress(
-                            checkpointer,
-                            execution_id,
-                            {
-                                "stage": "failed",
-                                "active_step": None,
-                                "current_action": "恢复任务时发生模型配置错误",
-                            },
-                        )
-            except Exception:
-                logger.exception("保存 Agent 恢复配置错误状态时出错")
+            _mark_failed(
+                execution_id,
+                "agent_configuration_error",
+                "恢复任务时发生模型配置错误",
+                "保存 Agent 恢复配置错误状态时出错",
+            )
             return response.error(
                 500,
                 "Agent 模型配置错误",
@@ -275,23 +257,12 @@ class AgentTaskService:
             )
         except Exception as error:
             logger.exception(f"Agent 任务恢复失败: {error}")
-            try:
-                with open_checkpointer() as checkpointer:
-                    if get_run(checkpointer, execution_id):
-                        set_run_status(
-                            checkpointer, execution_id, "failed", "agent_resume_failed"
-                        )
-                        update_run_progress(
-                            checkpointer,
-                            execution_id,
-                            {
-                                "stage": "failed",
-                                "active_step": None,
-                                "current_action": "恢复执行失败，可稍后重试",
-                            },
-                        )
-            except Exception:
-                logger.exception("保存 Agent 恢复失败状态时出错")
+            _mark_failed(
+                execution_id,
+                "agent_resume_failed",
+                "恢复执行失败，可稍后重试",
+                "保存 Agent 恢复失败状态时出错",
+            )
             return response.error(
                 502,
                 "Agent 恢复失败，可稍后重试",
@@ -311,12 +282,22 @@ class AgentTaskService:
                 if run is None:
                     return response.error(404, "未找到该 Agent 执行记录")
                 values = checkpoint_values(checkpointer, execution_id)
-                if _is_completed(values) and run["status"] != "completed":
-                    set_run_status(checkpointer, execution_id, "completed")
-                    run["status"] = "completed"
-                    run["error_code"] = None
                 progress = run.pop("progress", {})
+                if run["status"] not in ("completed", "failed", "cancelled"):
+                    run["result"] = None
                 result = run.get("result") or {}
+                if run["status"] == "completed" and result:
+                    return response.success(
+                        "执行状态",
+                        {
+                            **run,
+                            **result,
+                            "result": result,
+                            "active_step": None,
+                            "current_action": "任务执行完成",
+                            "resumable": False,
+                        },
+                    )
                 steps = progress.get("steps", values.get("steps", []))
                 return response.success(
                     "执行状态",
@@ -334,9 +315,13 @@ class AgentTaskService:
                             else progress.get("current_action", "")
                         ),
                         "steps": steps,
-                        "answer": values.get("answer", result.get("answer", "")),
+                        "answer": (
+                            result.get("answer", values.get("answer", ""))
+                            if run["status"] == "completed"
+                            else ""
+                        ),
                         "sources": values.get("sources") or result.get("sources") or [],
-                        "resumable": bool(values) and run["status"] != "completed",
+                        "resumable": bool(values) and run["status"] == "failed",
                     },
                 )
         except InvalidAgentRequest as error:

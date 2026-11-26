@@ -4,6 +4,7 @@ from loguru import logger
 
 from app.agents.ask_execution import AskExecution
 from app.agents.dispatcher import classify_task, dispatch_request
+from app.agents.execution import _mark_failed
 from app.agents.memory import prepare_history
 from app.agents.service import AgentTaskService
 from app.agents.state import InvalidAgentRequest
@@ -53,9 +54,18 @@ class AskService:
             execution_id, run = self.agent_service.create_routed_run(
                 task, conversation_id
             )
-            self.submit_background_task(
-                "ask", self.execution.run, execution_id, task, conversation_id
-            )
+            try:
+                self.submit_background_task(
+                    "ask", self.execution.run, execution_id, task, conversation_id
+                )
+            except Exception:
+                _mark_failed(
+                    execution_id,
+                    "ask_submission_failed",
+                    "后台任务提交失败",
+                    "保存后台问答提交失败状态时出错",
+                )
+                raise
             body, _ = response.success(
                 "任务已启动",
                 {

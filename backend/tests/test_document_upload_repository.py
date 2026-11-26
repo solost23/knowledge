@@ -1,9 +1,9 @@
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from app.infrastructure import database
 from app.infrastructure import document_upload_repository as repository
 
 
@@ -11,7 +11,7 @@ class DocumentUploadRepositoryTestCase(unittest.TestCase):
     def test_job_lifecycle_is_persisted(self):
         with (
             TemporaryDirectory() as data_dir,
-            patch.object(database, "DATA_DIR", Path(data_dir)),
+            patch.dict(os.environ, {"KNOWLEDGE_DB": str(Path(data_dir) / "test.db")}),
         ):
             created = repository.create_upload_job("job-1", "manual.pdf")
             repository.update_upload_job(
@@ -32,7 +32,7 @@ class DocumentUploadRepositoryTestCase(unittest.TestCase):
     def test_progress_never_regresses_or_changes_a_finished_job(self):
         with (
             TemporaryDirectory() as data_dir,
-            patch.object(database, "DATA_DIR", Path(data_dir)),
+            patch.dict(os.environ, {"KNOWLEDGE_DB": str(Path(data_dir) / "test.db")}),
         ):
             repository.create_upload_job("job-1", "manual.pdf")
             repository.update_upload_progress("job-1", 42, "正在解析")

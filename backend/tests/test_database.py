@@ -181,6 +181,78 @@ class DatabaseTestCase(unittest.TestCase):
                 0, session.scalar(select(func.count()).select_from(ConversationMessage))
             )
 
+    def test_execution_exchange_is_idempotent_under_concurrent_retries(self):
+        conversation_id = create_conversation()["id"]
+        result = {"execution_id": "same-execution", "answer": "答案"}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            list(
+                executor.map(
+                    lambda _: append_exchange(conversation_id, "问题", "答案", result),
+                    range(4),
+                )
+            )
+        self.assertEqual(2, len(get_conversation(conversation_id)["messages"]))
+
+    def test_resumed_answer_replaces_failure_exchange_without_duplicate_question(self):
+        conversation_id = create_conversation()["id"]
+        append_exchange(
+            conversation_id,
+            "问题",
+            "失败",
+            {"execution_id": "retry", "status": "failed"},
+        )
+        for _ in range(2):
+            append_exchange(
+                conversation_id,
+                "问题",
+                "最终答案",
+                {"execution_id": "retry", "status": "completed", "answer": "最终答案"},
+            )
+        messages = get_conversation(conversation_id)["messages"]
+        self.assertEqual(["问题", "最终答案"], [item["content"] for item in messages])
+        self.assertEqual("completed", messages[-1]["result"]["status"])
+
+    def test_legacy_answer_execution_is_backfilled_without_duplicate_messages(self):
+        self._legacy_database(
+            "conversations.db",
+            """
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE conversation_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                role TEXT NOT NULL, content TEXT NOT NULL, result_json TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO conversations (id, title) VALUES ('legacy', '旧标题');
+            INSERT INTO conversation_messages (conversation_id, role, content)
+            VALUES ('legacy', 'user', '问题');
+            INSERT INTO conversation_messages (conversation_id, role, content, result_json)
+            VALUES ('legacy', 'assistant', '答案', '{"execution_id": "legacy-run", "answer": "答案"}');
+            """,
+        )
+        for _ in range(2):
+            append_exchange(
+                "legacy",
+                "问题",
+                "答案",
+                {"execution_id": "legacy-run", "answer": "答案"},
+            )
+            dispose_databases()
+        self.assertEqual(2, len(get_conversation("legacy")["messages"]))
+        with get_database("conversations").session() as session:
+            self.assertEqual(
+                "legacy-run",
+                session.scalar(
+                    select(ConversationMessage.execution_id).where(
+                        ConversationMessage.role == "assistant"
+                    )
+                ),
+            )
+
     def test_summary_cannot_be_replaced_by_an_older_batch(self):
         conversation_id = create_conversation()["id"]
         append_exchange(conversation_id, "问题", "回答", {})
@@ -245,6 +317,36 @@ class DatabaseTestCase(unittest.TestCase):
             self.assertFalse(finish_run(reader, "run-1", "completed"))
             self.assertFalse(request_run_cancel(reader, "run-1"))
             self.assertEqual("cancelled", get_run(reader, "run-1")["status"])
+
+    def test_terminal_result_and_progress_commit_together(self):
+        with open_checkpointer() as checkpointer:
+            create_run(checkpointer, "atomic-run", "任务", {"stage": "finalizing"})
+            with self.assertRaises(TypeError):
+                finish_run(
+                    checkpointer,
+                    "atomic-run",
+                    "completed",
+                    result={"answer": "答案"},
+                    progress={"invalid": object()},
+                )
+            run = get_run(checkpointer, "atomic-run")
+            self.assertEqual("running", run["status"])
+            self.assertIsNone(run["result"])
+            self.assertEqual({"stage": "finalizing"}, run["progress"])
+            self.assertTrue(
+                finish_run(
+                    checkpointer,
+                    "atomic-run",
+                    "completed",
+                    result={"answer": "答案"},
+                    progress={"stage": "completed"},
+                )
+            )
+            run = get_run(checkpointer, "atomic-run")
+            self.assertEqual("completed", run["status"])
+            self.assertEqual("答案", run["result"]["answer"])
+            self.assertEqual(run["finished_at"], run["result"]["finished_at"])
+            self.assertEqual("completed", run["progress"]["stage"])
 
     def test_orm_and_langgraph_can_share_an_in_memory_database(self):
         with patch.dict(os.environ, {"AGENT_CHECKPOINT_DB": ":memory:"}):

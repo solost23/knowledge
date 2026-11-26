@@ -150,6 +150,7 @@ frontend/.vite/
 .uv-cache/
 .uv-python/
 .hf-home/
+.workbuddy/
 
 # 评测产物
 eval/.chroma/

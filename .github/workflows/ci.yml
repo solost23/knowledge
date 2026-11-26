@@ -39,6 +39,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: node --test async-state.test.mjs
       - run: npm run typecheck
       - run: npm run build
 
